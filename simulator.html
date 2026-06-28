@@ -1,0 +1,1504 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>家賃上限シミュレーター</title>
+<script src="lib/react.js"></script>
+<script src="lib/react-dom.js"></script>
+<script src="lib/prop-types.js"></script>
+<script src="lib/recharts.js"></script>
+<script src="lib/babel.js"></script>
+<script src="lib/tailwind.js"></script>
+<style>
+  body { font-family: 'Hiragino Sans', 'Yu Gothic', sans-serif; background: #f1f5f9; }
+  input[type=range] { width: 100%; }
+  @media (max-width: 768px) { .two-col { flex-direction: column; } }
+  .tab-active { border-bottom: 2px solid #3b82f6; color: #2563eb; font-weight: 600; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useMemo, useEffect } = React;
+const { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } = Recharts;
+
+// ─── デフォルト値 ────────────────────────────────────────────────
+const DEFAULTS = {
+  prefecture: "tokyo",
+  city: "yokohama",
+  startDate: "2026-08",
+  endDate: "2031-07",
+  birthDate: "2027-02-26",
+  // 夫
+  husbandMonthly: 330000,
+  husbandMonthlyGross: 437500,  // 給付金計算ベース（額面月収・総支給額）
+  husbandBonusSummer: 650000,
+  husbandBonusWinter: 650000,
+  husbandPaternityLeaveStart: "2027-02-26",
+  husbandPaternityLeaveDays: 56,
+  husbandChildcareLeaveEnd: "2028-02-25",
+  husbandRaises: {}, // {"2027-07": 2.0, ...} 昇給率(%)
+  husbandRaiseMonths: [7, 1], // 昇給タイミング（月）
+  // 妻
+  wifeMonthlyNormal: 193300,
+  wifeBenefitBaseMonthly: 193300, // 出産手当金・育休給付金の計算基準（標準報酬月額ベース）
+  wifeMonthlyGroundDuty: 100000,
+  wifeGroundDutyStart: "2026-08-01",
+  wifeGroundDutyEnd: "2026-12-17",
+  wifeBonusSummer: 460000,
+  wifeBonusWinter: 460000,
+  wifeDecisionBonus: 303000,
+  wifeMaternityStart: "2026-12-18",
+  wifePostnatalEnd: "2027-05-07",
+  wifeChildcareLeaveStart: "2027-05-08",
+  wifeChildcareLeaveEnd: "2028-02-25",
+  wifeResign: true,
+  wifeNewJobMonthlyMin: 150000,
+  wifeNewJobMonthlyMax: 200000,
+  wifeNewJobWaitMonths: 6,
+  wifeNewJobBonusAnnual: 200000,
+  wifeRaises: {}, // {"2027-04": 1.5, ...} 昇給率(%)
+  wifeRaiseMonths: [4, 10], // 昇給タイミング（月）
+  // 保育
+  nurseryEntryMonths: 12,
+  nurseryFee0to2: 40000,       // 神奈川:費用 / 東京:給付金参考額（同額フィールドで共用）
+  // 給付金・一時金（国）
+  birthLumpSum: 500000,        // 出産育児一時金
+  maternitySupport: 50000,     // 妊婦のための支援給付金（妊娠届出後）
+  childcareSupport: 50000,     // 子育て応援給付金（出産後）
+  husbandHealthBonus: 90000,   // 出産付加金（夫健保組合独自）
+  childrenAllowanceEnabled: true,
+  // 東京都独自給付金
+  tokyoBabyFirst: 100000,      // 赤ちゃんファーストギフト
+  tokyoBabyFirstPlus: 30000,   // 赤ちゃんファーストプラス（2026/1〜2027/3生まれ限定）
+  tokyo018Support: 5000,       // 018サポート（0〜18歳 /月）
+  // 家賃
+  rent: 144000,
+  // 固定費（毎月一定）
+  fixedItems: [
+    { id: 1,  name: '電気代',       amount: 7000 },
+    { id: 2,  name: 'ガス代',       amount: 1500 },
+    { id: 3,  name: '水道代',       amount: 1300 },
+    { id: 4,  name: '通信費（夫）', amount: 7700 },
+    { id: 5,  name: '通信費（妻）', amount: 3000 },
+    { id: 6,  name: '保険料（夫）', amount: 2000 },
+    { id: 7,  name: '保険料（妻）', amount: 1543 },
+    { id: 8,  name: '奨学金（夫）', amount: 9500 },
+    { id: 9,  name: '奨学金（妻）', amount: 9000 },
+    { id: 10, name: 'サブスク',     amount: 6300 },
+  ],
+  // 変動費（夫・通常期 / 育休中）
+  husbandVariableItems: [
+    { id: 20, name: '食費・日用品',         amountNormal: 30500, amountLeave: 30500 },
+    { id: 21, name: '交際費',               amountNormal: 14000, amountLeave: 7000 },
+    { id: 22, name: '旅行・レジャー',       amountNormal: 40000, amountLeave: 25000 },
+    { id: 23, name: '外食・カフェ・飲み会', amountNormal: 30000, amountLeave: 25000 },
+    { id: 24, name: '趣味・書籍・ゲーム',   amountNormal: 20000, amountLeave: 15000 },
+    { id: 25, name: '美容・ファッション',   amountNormal: 10000, amountLeave: 10000 },
+  ],
+  // 変動費（妻・通常期 / 育休中）
+  wifeVariableItems: [
+    { id: 30, name: '食費・日用品',         amountNormal: 30500, amountLeave: 30500 },
+    { id: 31, name: '交際費',               amountNormal: 14000, amountLeave: 7000 },
+    { id: 32, name: '旅行・レジャー',       amountNormal: 40000, amountLeave: 25000 },
+    { id: 33, name: '外食・カフェ・飲み会', amountNormal: 30000, amountLeave: 25000 },
+    { id: 34, name: '趣味・書籍・ゲーム',   amountNormal: 20000, amountLeave: 15000 },
+    { id: 35, name: '美容・ファッション',   amountNormal: 10000, amountLeave: 10000 },
+  ],
+  // 資産・貯蓄方針（支出として算入）
+  cashHusband: 2000000,
+  cashWife: 910000,
+  targetMonthlySavingsNormal: 40000,
+  targetMonthlySavingsLeave: 0,
+};
+
+let _nextId = 100;
+const nextId = () => ++_nextId;
+
+// ─── 日付ユーティリティ ──────────────────────────────────────────
+function parseYM(s) { const [y,m]=s.split('-').map(Number); return {y,m}; }
+function ymToKey(y,m) { return `${y}-${String(m).padStart(2,'0')}`; }
+function ymMonths(start, end) {
+  const months=[]; let {y,m}=parseYM(start); const {y:ey,m:em}=parseYM(end);
+  while(y<ey||(y===ey&&m<=em)){months.push(ymToKey(y,m));m++;if(m>12){m=1;y++;}}
+  return months;
+}
+function dateToYM(d) { const dt=new Date(d); return ymToKey(dt.getFullYear(),dt.getMonth()+1); }
+function daysInMonth(y,m) { return new Date(y,m,0).getDate(); }
+function daysOverlap(y,m,startDate,endDate) {
+  const mStart=new Date(y,m-1,1), mEnd=new Date(y,m,0);
+  const s=new Date(Math.max(mStart,new Date(startDate))), e=new Date(Math.min(mEnd,new Date(endDate)));
+  if(s>e) return 0;
+  return Math.round((e-s)/86400000)+1;
+}
+const ymMax=(a,b)=>a>=b?a:b;
+
+// 昇給率を累積して実効月収を計算
+function computeRaiseFactor(raises, currentYM, leaveStartYM, leaveEndYM, raiseMonths) {
+  if (!raises || Object.keys(raises).length === 0) return 1;
+  let factor = 1;
+  const sorted = Object.keys(raises).sort();
+  for (const raiseYM of sorted) {
+    if (raiseYM >= currentYM) break;
+    // 設定された昇給月以外のキーは無視（タイミング変更時の残留データ対策）
+    if (raiseMonths) {
+      const {m} = parseYM(raiseYM);
+      if (!raiseMonths.includes(m)) continue;
+    }
+    const onLeave = raiseYM >= leaveStartYM && raiseYM <= leaveEndYM;
+    if (!onLeave) {
+      factor *= (1 + (raises[raiseYM] || 0) / 100);
+    }
+  }
+  return factor;
+}
+
+// 昇給対象期間を生成（月配列を引数で受け取る）
+function generateRaisePeriods(startDate, endDate, raiseMonths) {
+  const months = (raiseMonths && raiseMonths.length > 0) ? raiseMonths : [4, 10];
+  const periods = [];
+  const {y:sy} = parseYM(startDate);
+  const {y:ey} = parseYM(endDate);
+  for (let y = sy; y <= ey; y++) {
+    for (const m of months) {
+      const ym = ymToKey(y, m);
+      if (ym > startDate && ym <= endDate) periods.push(ym);
+    }
+  }
+  return periods.sort();
+}
+
+// ─── 計算エンジン ────────────────────────────────────────────────
+function calcMonthly(cfg, rent) {
+  const months = ymMonths(cfg.startDate, cfg.endDate);
+  const birthDt = new Date(cfg.birthDate);
+  const birthYM = dateToYM(cfg.birthDate);
+
+  // 給付金計算ベース（手取りではなく額面/標準報酬で計算）
+  const wifeDailyWage    = (cfg.wifeBenefitBaseMonthly || cfg.wifeMonthlyNormal) / 30;
+  const husbandDailyWage = (cfg.husbandMonthlyGross    || cfg.husbandMonthly)   / 30;
+
+  const husbandLeaveStart = new Date(cfg.husbandPaternityLeaveStart);
+  const husbandLeaveEnd   = new Date(cfg.husbandChildcareLeaveEnd);
+  const wifeMatStart      = new Date(cfg.wifeMaternityStart);
+  const wifePostEnd       = new Date(cfg.wifePostnatalEnd);
+  const wifeCLStart       = new Date(cfg.wifeChildcareLeaveStart);
+  const wifeCLEnd         = new Date(cfg.wifeChildcareLeaveEnd);
+
+  const papaLeave1End = new Date(birthDt.getTime() + 27*86400000);
+  const papaLeave2End = new Date(birthDt.getTime() + 55*86400000);
+  const husbandCLStart  = new Date(papaLeave2End.getTime() + 86400000);
+  const husbandCL180End = new Date(husbandCLStart.getTime() + 179*86400000);
+  const wifeCL28End  = new Date(wifeCLStart.getTime() + 27*86400000);
+  const wifeCL180End = new Date(wifeCLStart.getTime() + 179*86400000);
+  // 出産手当金の法定対象期間：産前42日（出産予定日42日前〜）＋産後56日（出産日翌日〜56日後）
+  const matBenefitStart = new Date(birthDt.getTime() - 42*86400000);
+  const matBenefitEnd   = new Date(birthDt.getTime() + 56*86400000);
+
+  const matStartYM   = dateToYM(cfg.wifeMaternityStart);
+  const wifeCLEndYM  = dateToYM(cfg.wifeChildcareLeaveEnd);
+  const husbandPLStartYM = dateToYM(cfg.husbandPaternityLeaveStart);
+  const husbandCLEndYM   = dateToYM(cfg.husbandChildcareLeaveEnd);
+
+  let wifeNewJobStartYM = null;
+  if (cfg.wifeResign) {
+    const {y,m} = parseYM(wifeCLEndYM);
+    let ny=y, nm=m+cfg.wifeNewJobWaitMonths;
+    while(nm>12){nm-=12;ny++;} wifeNewJobStartYM=ymToKey(ny,nm);
+  }
+
+  function bonusCalc(person, ym, inNewJob) {
+    const {y,m} = parseYM(ym);
+    let bonus = 0;
+    const hLS=cfg.husbandPaternityLeaveStart, hLE=cfg.husbandChildcareLeaveEnd;
+    const wLS=cfg.wifeMaternityStart, wLE=cfg.wifeChildcareLeaveEnd;
+    function workRatio(lS,lE,sy,sm,ey,em) {
+      const pS=new Date(sy,sm-1,1), pE=new Date(ey,em,0);
+      const total=Math.round((pE-pS)/86400000)+1; if(total<=0) return 1;
+      const oS=new Date(Math.max(pS,new Date(lS))), oE=new Date(Math.min(pE,new Date(lE)));
+      const leave=oS<=oE?Math.round((oE-oS)/86400000)+1:0;
+      return Math.max(0,(total-leave)/total);
+    }
+    if (m===7) {
+      if (person==='husband') bonus=Math.round(cfg.husbandBonusSummer*workRatio(hLS,hLE,y,4,y,9));
+      else if (!inNewJob) bonus=Math.round(cfg.wifeBonusSummer*workRatio(wLS,wLE,y,4,y,9));
+      else bonus=Math.round((cfg.wifeNewJobBonusAnnual||0));
+    }
+    if (m===12) {
+      if (person==='husband') bonus=Math.round(cfg.husbandBonusWinter*workRatio(hLS,hLE,y,10,y+1,3));
+      else if (!inNewJob) bonus=Math.round(cfg.wifeBonusWinter*workRatio(wLS,wLE,y,10,y+1,3));
+    }
+    if (m===3 && person==='wife' && !inNewJob) {
+      const {y:cy,m:cm}=parseYM(dateToYM(cfg.wifeChildcareLeaveStart));
+      if(y<cy||(y===cy&&m<cm)) bonus+=Math.round(cfg.wifeDecisionBonus*workRatio(wLS,wLE,y,1,y,3));
+    }
+    return bonus;
+  }
+
+  const rows = months.map(ym => {
+    const {y,m} = parseYM(ym);
+    const totalDays = daysInMonth(y,m);
+
+    // 夫の実効月収（昇給反映）
+    const hRaiseFactor = computeRaiseFactor(cfg.husbandRaises, ym, husbandPLStartYM, husbandCLEndYM, cfg.husbandRaiseMonths);
+    const effectiveHusbandMonthly = Math.round(cfg.husbandMonthly * hRaiseFactor);
+    const effectiveHusbandDailyWage = effectiveHusbandMonthly / 30;
+
+    // ─ 夫収入 ─
+    let husbandIncome=0, husbandPhase='normal';
+    let bHP1=0, bHP2=0, bHC1=0, bHC2=0;
+    const hP1=daysOverlap(y,m,birthDt,papaLeave1End);
+    const hP2=daysOverlap(y,m,new Date(papaLeave1End.getTime()+86400000),papaLeave2End);
+    const hC1=daysOverlap(y,m,husbandCLStart,husbandCL180End);
+    const hC2=daysOverlap(y,m,new Date(husbandCL180End.getTime()+86400000),husbandLeaveEnd);
+    const hLeaveDays=hP1+hP2+hC1+hC2;
+    if (hLeaveDays>0) {
+      const hWork=totalDays-hLeaveDays;
+      const workPay = hWork>0 ? effectiveHusbandDailyWage*hWork : 0;
+      bHP1=Math.round(husbandDailyWage*hP1*0.80);
+      bHP2=Math.round(husbandDailyWage*hP2*0.67);
+      bHC1=Math.round(husbandDailyWage*hC1*0.67);
+      bHC2=Math.round(husbandDailyWage*hC2*0.50);
+      const husbandBenefit=bHP1+bHP2+bHC1+bHC2;
+      husbandIncome=Math.round(workPay)+husbandBenefit;
+      if(hC2>0) husbandPhase='leave2';
+      else if(hC1>0) husbandPhase='leave1';
+      else if(hP2>0) husbandPhase='papa2';
+      else husbandPhase='papa1';
+    } else {
+      husbandIncome=effectiveHusbandMonthly;
+    }
+    const hBonus=bonusCalc('husband',ym,false);
+    husbandIncome+=hBonus;
+    const husbandBenefit=bHP1+bHP2+bHC1+bHC2;
+
+    // 妻の実効月収（昇給反映）
+    const wRaiseFactor = computeRaiseFactor(cfg.wifeRaises, ym, matStartYM, wifeCLEndYM, cfg.wifeRaiseMonths);
+    const effectiveWifeMonthly = Math.round(cfg.wifeMonthlyNormal * wRaiseFactor);
+    const effectiveWifeDailyWage = effectiveWifeMonthly / 30;
+
+    // ─ 妻収入 ─
+    let wifeIncome=0, wifePhase='normal';
+    let bWMat=0, bWCL1=0, bWCL2=0, bWCL3=0;
+    const groundStart=new Date(cfg.wifeGroundDutyStart), groundEnd=new Date(cfg.wifeGroundDutyEnd);
+    // 出産手当金の対象日数：法定の産前42日＋産後56日のみ（産前休業開始日とは別）
+    const matDays=daysOverlap(y,m,matBenefitStart,matBenefitEnd);
+    const cDays1=daysOverlap(y,m,wifeCLStart,wifeCL28End);
+    const cDays2=daysOverlap(y,m,new Date(wifeCL28End.getTime()+86400000),wifeCL180End);
+    const cDays3=daysOverlap(y,m,new Date(wifeCL180End.getTime()+86400000),wifeCLEnd);
+    const wLeaveDays=matDays+cDays1+cDays2+cDays3;
+
+    // 育休最終月(wifeCLEndYM)は育休給付を計算するため > で翌月から待機期間
+    const inWait  = cfg.wifeResign && wifeNewJobStartYM && ym>wifeCLEndYM && ym<wifeNewJobStartYM;
+    const inNewJob= cfg.wifeResign && wifeNewJobStartYM && ym>=wifeNewJobStartYM;
+
+    if (inNewJob) {
+      wifeIncome=Math.round((cfg.wifeNewJobMonthlyMin+cfg.wifeNewJobMonthlyMax)/2);
+      wifeIncome+=bonusCalc('wife',ym,true);
+      wifePhase='newjob';
+    } else if (inWait) {
+      wifeIncome=0; wifePhase='waiting';
+    } else if (wLeaveDays>0) {
+      if(matDays>0){bWMat=Math.round(wifeDailyWage*(2/3)*matDays);wifeIncome+=bWMat;wifePhase='maternity';}
+      if(cDays1>0){bWCL1=Math.round(wifeDailyWage*0.80*cDays1);wifeIncome+=bWCL1;wifePhase='cl1';}
+      if(cDays2>0){bWCL2=Math.round(wifeDailyWage*0.67*cDays2);wifeIncome+=bWCL2;wifePhase='cl2';}
+      if(cDays3>0){bWCL3=Math.round(wifeDailyWage*0.50*cDays3);wifeIncome+=bWCL3;wifePhase='cl3';}
+      const wWork=totalDays-wLeaveDays;
+      if(wWork>0){
+        const gd=daysOverlap(y,m,groundStart,groundEnd);
+        const base=gd>0?cfg.wifeMonthlyGroundDuty/30:effectiveWifeDailyWage;
+        wifeIncome+=base*wWork;
+      }
+      wifeIncome+=bonusCalc('wife',ym,false);
+      wifeIncome=Math.round(wifeIncome);
+    } else {
+      const mStart=new Date(y,m-1,1), mEnd=new Date(y,m,0);
+      const isGround=mStart<=groundEnd&&mEnd>=groundStart;
+      if(isGround){
+        const gd=daysOverlap(y,m,groundStart,groundEnd), nd=totalDays-gd;
+        wifeIncome=Math.round((cfg.wifeMonthlyGroundDuty/30)*gd+(effectiveWifeDailyWage)*nd);
+      } else {
+        wifeIncome=effectiveWifeMonthly;
+      }
+      wifeIncome+=bonusCalc('wife',ym,false);
+    }
+
+    const wifeBenefit=bWMat+bWCL1+bWCL2+bWCL3;
+
+    // ─ 支出 ─
+    const childBorn=ym>=birthYM;
+    const leaveEndForExpense=ymMax(wifeCLEndYM,husbandCLEndYM);
+    const onLeave=ym>=matStartYM && ym<=leaveEndForExpense;
+
+    const fixedTotal = rent + (cfg.fixedItems||[]).reduce((s,i)=>s+i.amount,0);
+    const varTotal =
+      (cfg.husbandVariableItems||[]).reduce((s,i)=>s+(onLeave?i.amountLeave:i.amountNormal),0) +
+      (cfg.wifeVariableItems||[]).reduce((s,i)=>s+(onLeave?i.amountLeave:i.amountNormal),0);
+
+    // 保育料（神奈川のみ費用発生、東京は無償化）
+    let nurseryFee=0, nurserySubsidy=0;
+    if(childBorn){
+      const childAgeMonths=(y-birthDt.getFullYear())*12+(m-(birthDt.getMonth()+1));
+      if(childAgeMonths>=cfg.nurseryEntryMonths && childAgeMonths<36){
+        if(cfg.prefecture==='tokyo'){
+          nurserySubsidy=cfg.nurseryFee0to2||40000; // 保育料無償化分を給付金として計上
+        } else {
+          nurseryFee=cfg.nurseryFee0to2||40000;
+        }
+      }
+    }
+
+    // ─ その他給付金・一時金 ─
+    let oBirthLump=0, oMatSupport=0, oChildcareSupport=0, oHusbandBonus=0;
+    let oChildrenAllowance=0, oNurserySubsidy=nurserySubsidy;
+    let oTokyo018=0, oTokyoBabyFirst=0, oTokyoBabyFirstPlus=0;
+
+    // 出産月の一時金
+    if(ym===birthYM){
+      oBirthLump       = cfg.birthLumpSum||500000;
+      oHusbandBonus    = cfg.husbandHealthBonus||90000;
+      oChildcareSupport= cfg.childcareSupport||50000;
+      if(cfg.prefecture==='tokyo'){
+        oTokyoBabyFirst = cfg.tokyoBabyFirst||100000;
+        if(birthYM>='2026-01' && birthYM<='2027-03')
+          oTokyoBabyFirstPlus = cfg.tokyoBabyFirstPlus||30000;
+      }
+    }
+    // 妊婦支援給付金（産前休業開始月）
+    if(ym===matStartYM) oMatSupport = cfg.maternitySupport||50000;
+
+    // 児童手当（偶数月に2ヶ月分まとめて）
+    if(childBorn && cfg.childrenAllowanceEnabled!==false){
+      const childAgeMonths=(y-birthDt.getFullYear())*12+(m-(birthDt.getMonth()+1));
+      if(childAgeMonths>=0 && childAgeMonths<18*12){
+        const monthlyRate = childAgeMonths<36 ? 15000 : 10000;
+        if(m%2===0) oChildrenAllowance = monthlyRate*2; // 偶数月に2ヶ月分
+      }
+    }
+
+    // 東京都018サポート（毎月）
+    if(cfg.prefecture==='tokyo' && childBorn){
+      const childAgeMonths=(y-birthDt.getFullYear())*12+(m-(birthDt.getMonth()+1));
+      if(childAgeMonths>=0 && childAgeMonths<18*12)
+        oTokyo018 = cfg.tokyo018Support||5000;
+    }
+
+    const totalOtherBenefit = oBirthLump+oMatSupport+oChildcareSupport+oHusbandBonus
+      +oChildrenAllowance+oNurserySubsidy+oTokyo018+oTokyoBabyFirst+oTokyoBabyFirstPlus;
+
+    // 積立貯金（支出として算入）
+    const savingsTarget = onLeave ? (cfg.targetMonthlySavingsLeave||0) : (cfg.targetMonthlySavingsNormal||0);
+
+    const totalExpenses=fixedTotal+varTotal+nurseryFee+savingsTarget;
+    const totalIncome=husbandIncome+wifeIncome+totalOtherBenefit;
+    const husbandBenefitTotal=husbandBenefit;
+    const wifeBenefitTotal=wifeBenefit;
+    const totalBenefit=husbandBenefit+wifeBenefit+totalOtherBenefit;
+    const balance=totalIncome-totalExpenses;
+    const isBonus=(bonusCalc('husband',ym,false)>0)||(bonusCalc('wife',ym,inNewJob)>0);
+
+    return {
+      ym, y, m,
+      husbandIncome, wifeIncome, totalIncome,
+      husbandBenefit: husbandBenefitTotal, wifeBenefit: wifeBenefitTotal,
+      totalBenefit, totalOtherBenefit,
+      bHP1, bHP2, bHC1, bHC2, bWMat, bWCL1, bWCL2, bWCL3,
+      dHP1: hP1, dHP2: hP2, dHC1: hC1, dHC2: hC2,
+      dWMat: matDays, dWCL1: cDays1, dWCL2: cDays2, dWCL3: cDays3,
+      oBirthLump, oMatSupport, oChildcareSupport, oHusbandBonus,
+      oChildrenAllowance, oNurserySubsidy, oTokyo018, oTokyoBabyFirst, oTokyoBabyFirstPlus,
+      totalExpenses, nurseryFee, savingsTarget, balance,
+      husbandPhase, wifePhase, isBonus, onLeave
+    };
+  });
+
+  let cumulative=cfg.cashHusband+cfg.cashWife;
+  return rows.map(r=>{ cumulative+=r.balance; return {...r,cumulative}; });
+}
+
+function calcRentLimits(cfg) {
+  const MIN_RENT=80000, MAX_RENT=350000, STEP=1000;
+  const matStartYM=dateToYM(cfg.wifeMaternityStart);
+  const wifeCLEndYM=dateToYM(cfg.wifeChildcareLeaveEnd);
+  const husbandCLEndYM=dateToYM(cfg.husbandChildcareLeaveEnd);
+  const leaveEndYM=ymMax(wifeCLEndYM,husbandCLEndYM);
+  const initialCash=cfg.cashHusband+cfg.cashWife;
+
+  let wifeNewJobStartYM=null;
+  if(cfg.wifeResign){
+    const {y,m}=parseYM(wifeCLEndYM); let ny=y,nm=m+cfg.wifeNewJobWaitMonths;
+    while(nm>12){nm-=12;ny++;} wifeNewJobStartYM=ymToKey(ny,nm);
+  }
+
+  function check(rent) {
+    const rows=calcMonthly({...cfg,rent},rent);
+    const leaveRows=rows.filter(r=>r.ym>=matStartYM&&r.ym<=leaveEndYM);
+    const newJobRows=wifeNewJobStartYM?rows.filter(r=>r.ym>=wifeNewJobStartYM):[];
+    const postLeaveRows=rows.filter(r=>r.ym>leaveEndYM);
+
+    // ① 育休全期間の収支合計がプラス（積立貯金込み）
+    const leaveSum=leaveRows.reduce((s,r)=>s+r.balance,0);
+    const limit1=leaveRows.length>0&&leaveSum>=0;
+
+    // ② 育休開始〜転職後収入開始まで、現金残高が初期貯蓄の50%以上
+    const difficultEndYM=wifeNewJobStartYM||leaveEndYM;
+    const difficultRows=rows.filter(r=>r.ym>=matStartYM&&r.ym<=difficultEndYM);
+    const minCash=difficultRows.reduce((min,r)=>Math.min(min,r.cumulative),initialCash);
+    const limit2=minCash>=initialCash*0.5;
+
+    // ③ 転職後（or育休後）の月次収支が平均ゼロ以上（積立貯金込み）
+    const targetRows=newJobRows.length>0?newJobRows:postLeaveRows;
+    const avgBalance=targetRows.length>0?targetRows.reduce((s,r)=>s+r.balance,0)/targetRows.length:0;
+    const limit3=avgBalance>=0;
+
+    return {limit1,limit2,limit3};
+  }
+
+  let rent1=null,rent2=null,rent3=null;
+  for(let r=MIN_RENT;r<=MAX_RENT;r+=STEP){
+    const {limit1,limit2,limit3}=check(r);
+    if(limit1) rent1=r;
+    if(limit2) rent2=r;
+    if(limit3) rent3=r;
+  }
+  return {rent1,rent2,rent3};
+}
+
+// ─── フォーマット ────────────────────────────────────────────────
+const fmt  = n=>n==null?'-':`¥${Math.round(n).toLocaleString()}`;
+const fmtK = n=>n==null?'-':`${(Math.round(n)/10000).toFixed(1)}万`;
+const fmtKs= n=>n==null?'-':`${Math.round(n/1000)}k`;
+
+// ─── フェーズバッジ ──────────────────────────────────────────────
+function PhaseBadge({phase}) {
+  const map={
+    normal:   ['通常勤務',        'bg-green-100 text-green-700'],
+    papa1:    ['パパ育休80%',     'bg-blue-100 text-blue-700'],
+    papa2:    ['パパ育休67%',     'bg-sky-100 text-sky-700'],
+    leave1:   ['育休67%',         'bg-indigo-100 text-indigo-700'],
+    leave2:   ['育休50%',         'bg-purple-100 text-purple-700'],
+    maternity:['産休(手当金67%)', 'bg-pink-100 text-pink-700'],
+    cl1:      ['育休80%',         'bg-orange-100 text-orange-700'],
+    cl2:      ['育休67%',         'bg-amber-100 text-amber-700'],
+    cl3:      ['育休50%',         'bg-red-100 text-red-700'],
+    waiting:  ['転職待機(収入0)', 'bg-gray-100 text-gray-600'],
+    newjob:   ['転職後',          'bg-teal-100 text-teal-700'],
+  };
+  const [label,cls]=map[phase]||['?','bg-gray-100'];
+  return <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${cls}`}>{label}</span>;
+}
+
+// ─── 共通UIコンポーネント ────────────────────────────────────────
+function Accordion({title,children,defaultOpen=false,badge}) {
+  const [open,setOpen]=useState(defaultOpen);
+  return (
+    <div className="border border-gray-200 rounded-lg mb-2 overflow-hidden">
+      <button className="w-full flex justify-between items-center px-4 py-3 bg-gray-50 hover:bg-gray-100 font-semibold text-sm text-gray-700"
+        onClick={()=>setOpen(!open)}>
+        <span className="flex items-center gap-2">{title}{badge&&<span className="text-xs font-normal text-gray-400">{badge}</span>}</span>
+        <span className="text-gray-400">{open?'▲':'▼'}</span>
+      </button>
+      {open&&<div className="px-4 py-3 space-y-2">{children}</div>}
+    </div>
+  );
+}
+
+function Field({label,children,hint}) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <label className="text-xs text-gray-500 font-medium">{label}</label>
+      {hint&&<div className="text-xs text-gray-400">{hint}</div>}
+      {children}
+    </div>
+  );
+}
+
+function NumberInput({value,onChange,step=1000,prefix='¥',min,max}) {
+  return (
+    <div className="flex items-center gap-1">
+      {prefix&&<span className="text-gray-400 text-sm">{prefix}</span>}
+      <input type="number" className="border rounded px-2 py-1 text-sm w-full bg-white" value={value}
+        min={min} max={max} step={step} onChange={e=>onChange(Number(e.target.value))}/>
+    </div>
+  );
+}
+function TextInput({value,onChange,type='text'}) {
+  return <input type={type} className="border rounded px-2 py-1 text-sm w-full bg-white" value={value} onChange={e=>onChange(e.target.value)}/>;
+}
+
+// ─── 昇給率テーブル ──────────────────────────────────────────────
+function RaiseRateTable({raises, onChange, raiseMonths, onRaiseMonthsChange, startDate, endDate, leaveStartYM, leaveEndYM}) {
+  const periods = useMemo(() => generateRaisePeriods(startDate, endDate, raiseMonths), [startDate, endDate, raiseMonths]);
+  const monthOptions = [1,2,3,4,5,6,7,8,9,10,11,12];
+  const m1 = raiseMonths?.[0] ?? 4;
+  const m2 = raiseMonths?.[1] ?? 10;
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-xs text-gray-500 shrink-0">昇給タイミング:</span>
+        <select className="border rounded px-1 py-0.5 text-xs bg-white" value={m1}
+          onChange={e=>onRaiseMonthsChange([Number(e.target.value), m2])}>
+          {monthOptions.map(m=><option key={m} value={m}>{m}月</option>)}
+        </select>
+        <span className="text-xs text-gray-400">・</span>
+        <select className="border rounded px-1 py-0.5 text-xs bg-white" value={m2}
+          onChange={e=>onRaiseMonthsChange([m1, Number(e.target.value)])}>
+          {monthOptions.map(m=><option key={m} value={m}>{m}月</option>)}
+        </select>
+      </div>
+      {periods.length === 0 && <div className="text-xs text-gray-400">昇給対象期間なし</div>}
+      <div className="text-xs text-gray-400 mb-1.5">育休中は自動スキップ。</div>
+      <div className="grid grid-cols-2 gap-1">
+        {periods.map(ym => {
+          const onLeave = ym >= leaveStartYM && ym <= leaveEndYM;
+          return (
+            <div key={ym} className={`flex items-center gap-1 py-0.5 ${onLeave?'opacity-40':''}`}>
+              <span className="text-xs text-gray-600 w-16 shrink-0">{ym}</span>
+              {onLeave
+                ? <span className="text-xs text-gray-400 italic">育休中</span>
+                : <div className="flex items-center gap-0.5">
+                    <input type="number" step="0.1" min="0" max="20"
+                      className="border rounded px-1 py-0.5 text-xs w-14 bg-white"
+                      value={raises[ym] ?? 0}
+                      onChange={e=>onChange({...raises, [ym]: Number(e.target.value)})}/>
+                    <span className="text-xs text-gray-400">%</span>
+                  </div>
+              }
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── 支出項目エディタ ────────────────────────────────────────────
+function ExpenseItemEditor({items, onChange, type}) {
+  const updateItem=(id,key,val)=>onChange(items.map(i=>i.id===id?{...i,[key]:val}:i));
+  const deleteItem=(id)=>onChange(items.filter(i=>i.id!==id));
+  const addItem=()=>onChange([...items,type==='fixed'
+    ?{id:nextId(),name:'新しい項目',amount:0}
+    :{id:nextId(),name:'新しい項目',amountNormal:0,amountLeave:0}]);
+  return (
+    <div className="space-y-1">
+      {type==='fixed'&&items.map(item=>(
+        <div key={item.id} className="flex gap-1 items-center">
+          <input className="border rounded px-1 py-1 text-xs flex-1 min-w-0 bg-white" value={item.name}
+            onChange={e=>updateItem(item.id,'name',e.target.value)}/>
+          <div className="flex items-center gap-0.5 shrink-0">
+            <span className="text-xs text-gray-400">¥</span>
+            <input type="number" step="100" className="border rounded px-1 py-1 text-xs w-24 bg-white"
+              value={item.amount} onChange={e=>updateItem(item.id,'amount',Number(e.target.value))}/>
+          </div>
+          <button onClick={()=>deleteItem(item.id)} className="text-red-400 hover:text-red-600 text-xs px-1">✕</button>
+        </div>
+      ))}
+      {type==='variable'&&(
+        <>
+          <div className="flex gap-1 text-xs text-gray-400 px-1">
+            <div className="flex-1">項目名</div>
+            <div className="w-20 text-center">通常時</div>
+            <div className="w-20 text-center">育休中</div>
+            <div className="w-4"></div>
+          </div>
+          {items.map(item=>(
+            <div key={item.id} className="flex gap-1 items-center">
+              <input className="border rounded px-1 py-1 text-xs flex-1 min-w-0 bg-white" value={item.name}
+                onChange={e=>updateItem(item.id,'name',e.target.value)}/>
+              <input type="number" step="1000" className="border rounded px-1 py-1 text-xs w-20 bg-white"
+                value={item.amountNormal} onChange={e=>updateItem(item.id,'amountNormal',Number(e.target.value))}/>
+              <input type="number" step="1000" className="border rounded px-1 py-1 text-xs w-20 bg-white"
+                value={item.amountLeave} onChange={e=>updateItem(item.id,'amountLeave',Number(e.target.value))}/>
+              <button onClick={()=>deleteItem(item.id)} className="text-red-400 hover:text-red-600 text-xs px-1">✕</button>
+            </div>
+          ))}
+        </>
+      )}
+      <button onClick={addItem} className="w-full text-xs py-1 border border-dashed border-gray-300 hover:border-blue-400 hover:text-blue-500 rounded text-gray-400 mt-1">
+        ＋ 項目追加
+      </button>
+    </div>
+  );
+}
+
+// ─── 入力パネル ──────────────────────────────────────────────────
+function InputPanel({cfg, onChange, onReset, onSave, saveLabel, onCopyURL, urlLabel}) {
+  const set=(key)=>(val)=>onChange({...cfg,[key]:val});
+  const husbandPLStartYM = dateToYM(cfg.husbandPaternityLeaveStart);
+  const husbandCLEndYM   = dateToYM(cfg.husbandChildcareLeaveEnd);
+  const wifeMatStartYM   = dateToYM(cfg.wifeMaternityStart);
+  const wifeCLEndYM      = dateToYM(cfg.wifeChildcareLeaveEnd);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex justify-between items-center mb-3">
+        <h2 className="font-bold text-gray-700 text-base">入力設定</h2>
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          {saveLabel && <span className="text-xs text-green-600 font-medium">{saveLabel}</span>}
+          {urlLabel  && <span className="text-xs text-purple-600 font-medium">{urlLabel}</span>}
+          <button onClick={onSave}     className="text-xs px-2.5 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-full">保存</button>
+          <button onClick={onCopyURL}  className="text-xs px-2.5 py-1.5 bg-purple-500 hover:bg-purple-600 text-white rounded-full">URLコピー</button>
+          <button onClick={onReset}    className="text-xs px-2.5 py-1.5 bg-gray-200 hover:bg-gray-300 rounded-full text-gray-600">リセット</button>
+        </div>
+      </div>
+
+      <Accordion title="基本設定" defaultOpen={true}>
+        <Field label="居住地">
+          <div className="flex gap-4 text-sm">
+            {[['tokyo','東京都（保育料無償）'],['kanagawa','神奈川県']].map(([v,l])=>(
+              <label key={v} className="flex items-center gap-1 cursor-pointer">
+                <input type="radio" checked={cfg.prefecture===v} onChange={()=>set('prefecture')(v)}/>{l}
+              </label>
+            ))}
+          </div>
+        </Field>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="居住開始年月"><TextInput type="month" value={cfg.startDate} onChange={set('startDate')}/></Field>
+          <Field label="居住終了年月"><TextInput type="month" value={cfg.endDate} onChange={set('endDate')}/></Field>
+        </div>
+        <Field label="出産予定日"><TextInput type="date" value={cfg.birthDate} onChange={set('birthDate')}/></Field>
+        <Field label="保育園入園予定月齢（ヶ月）">
+          <NumberInput value={cfg.nurseryEntryMonths} onChange={set('nurseryEntryMonths')} prefix="" step={1}/>
+        </Field>
+      </Accordion>
+
+      <Accordion title="夫の収入">
+        <div className="grid grid-cols-1 gap-2">
+          <Field label="手取り月収（ベース）"><NumberInput value={cfg.husbandMonthly} onChange={set('husbandMonthly')}/></Field>
+          <Field label="給付金計算ベース（額面月収・総支給額）"
+            hint="育休給付金は額面月収÷30で日額算出。手取りより高い場合は修正してください。">
+            <NumberInput value={cfg.husbandMonthlyGross||437500} onChange={set('husbandMonthlyGross')}/>
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="夏ボーナス"><NumberInput value={cfg.husbandBonusSummer} onChange={set('husbandBonusSummer')}/></Field>
+            <Field label="冬ボーナス"><NumberInput value={cfg.husbandBonusWinter} onChange={set('husbandBonusWinter')}/></Field>
+          </div>
+        </div>
+        <div className="border-t pt-2 mt-1">
+          <div className="text-xs font-semibold text-gray-500 mb-1">産後パパ育休・育休</div>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="育休開始日"><TextInput type="date" value={cfg.husbandPaternityLeaveStart} onChange={set('husbandPaternityLeaveStart')}/></Field>
+            <Field label="育休終了日"><TextInput type="date" value={cfg.husbandChildcareLeaveEnd} onChange={set('husbandChildcareLeaveEnd')}/></Field>
+          </div>
+        </div>
+        <div className="border-t pt-2 mt-1">
+          <div className="text-xs font-semibold text-gray-500 mb-1.5">半期ごとの昇給率（育休中は対象外）</div>
+          <RaiseRateTable
+            raises={cfg.husbandRaises||{}} onChange={set('husbandRaises')}
+            raiseMonths={cfg.husbandRaiseMonths||[7,1]} onRaiseMonthsChange={set('husbandRaiseMonths')}
+            startDate={cfg.startDate} endDate={cfg.endDate}
+            leaveStartYM={husbandPLStartYM} leaveEndYM={husbandCLEndYM}/>
+        </div>
+      </Accordion>
+
+      <Accordion title="妻の収入">
+        <div className="grid grid-cols-1 gap-2">
+          <Field label="手取り月収（通常・ベース）"><NumberInput value={cfg.wifeMonthlyNormal} onChange={set('wifeMonthlyNormal')}/></Field>
+          <Field label="出産手当金・育休給付金の計算基準（標準報酬月額ベース）"
+            hint="地上勤務期間は月収が下がるため、実際の標準報酬月額と異なる場合は修正してください。">
+            <NumberInput value={cfg.wifeBenefitBaseMonthly||cfg.wifeMonthlyNormal} onChange={set('wifeBenefitBaseMonthly')}/>
+          </Field>
+          <Field label="地上勤務期間の月収"><NumberInput value={cfg.wifeMonthlyGroundDuty} onChange={set('wifeMonthlyGroundDuty')}/></Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="地上勤務開始"><TextInput type="date" value={cfg.wifeGroundDutyStart} onChange={set('wifeGroundDutyStart')}/></Field>
+            <Field label="地上勤務終了"><TextInput type="date" value={cfg.wifeGroundDutyEnd} onChange={set('wifeGroundDutyEnd')}/></Field>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <Field label="夏ボーナス"><NumberInput value={cfg.wifeBonusSummer} onChange={set('wifeBonusSummer')}/></Field>
+            <Field label="冬ボーナス"><NumberInput value={cfg.wifeBonusWinter} onChange={set('wifeBonusWinter')}/></Field>
+            <Field label="決算賞与(3月)"><NumberInput value={cfg.wifeDecisionBonus} onChange={set('wifeDecisionBonus')}/></Field>
+          </div>
+        </div>
+        <div className="border-t pt-2 mt-1">
+          <div className="text-xs font-semibold text-gray-500 mb-1">産休・育休</div>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="産前休業開始"><TextInput type="date" value={cfg.wifeMaternityStart} onChange={set('wifeMaternityStart')}/></Field>
+            <Field label="産後休業終了"><TextInput type="date" value={cfg.wifePostnatalEnd} onChange={set('wifePostnatalEnd')}/></Field>
+            <Field label="育休開始日"><TextInput type="date" value={cfg.wifeChildcareLeaveStart} onChange={set('wifeChildcareLeaveStart')}/></Field>
+            <Field label="育休終了日"><TextInput type="date" value={cfg.wifeChildcareLeaveEnd} onChange={set('wifeChildcareLeaveEnd')}/></Field>
+          </div>
+        </div>
+        <div className="border-t pt-2 mt-1">
+          <Field label="退職予定">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" checked={cfg.wifeResign} onChange={e=>set('wifeResign')(e.target.checked)}/>退職予定あり
+            </label>
+          </Field>
+          {cfg.wifeResign&&(
+            <div className="mt-2 space-y-2 pl-1">
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="転職後月収（下限）"><NumberInput value={cfg.wifeNewJobMonthlyMin} onChange={set('wifeNewJobMonthlyMin')}/></Field>
+                <Field label="転職後月収（上限）"><NumberInput value={cfg.wifeNewJobMonthlyMax} onChange={set('wifeNewJobMonthlyMax')}/></Field>
+              </div>
+              <Field label="転職待機期間（月数）">
+                <NumberInput value={cfg.wifeNewJobWaitMonths} onChange={set('wifeNewJobWaitMonths')} prefix="" step={1}/>
+              </Field>
+              <Field label="転職後ボーナス（年額・仮置き）" hint="7月に計上">
+                <NumberInput value={cfg.wifeNewJobBonusAnnual||0} onChange={set('wifeNewJobBonusAnnual')}/>
+              </Field>
+            </div>
+          )}
+        </div>
+        <div className="border-t pt-2 mt-1">
+          <div className="text-xs font-semibold text-gray-500 mb-1.5">半期ごとの昇給率（育休中は対象外）</div>
+          <RaiseRateTable
+            raises={cfg.wifeRaises||{}} onChange={set('wifeRaises')}
+            raiseMonths={cfg.wifeRaiseMonths||[4,10]} onRaiseMonthsChange={set('wifeRaiseMonths')}
+            startDate={cfg.startDate} endDate={cfg.endDate}
+            leaveStartYM={wifeMatStartYM} leaveEndYM={wifeCLEndYM}/>
+        </div>
+      </Accordion>
+
+      <Accordion title="固定費（毎月一定）">
+        <div className="text-xs text-gray-400 mb-1">家賃はスライダーで設定。項目名は直接編集可。</div>
+        <ExpenseItemEditor type="fixed" items={cfg.fixedItems} onChange={set('fixedItems')}/>
+      </Accordion>
+
+      <Accordion title="変動費（通常時 / 育休中）">
+        <div className="text-xs text-gray-400 mb-2">育休中（産前休業〜育休終了）は右列の金額を使用します。</div>
+        <div className="mb-1 text-xs font-semibold text-blue-700 flex items-center gap-1">
+          <span className="inline-block w-2 h-2 rounded-full bg-blue-400"></span>夫
+        </div>
+        <ExpenseItemEditor type="variable" items={cfg.husbandVariableItems} onChange={set('husbandVariableItems')}/>
+        <div className="mt-3 mb-1 text-xs font-semibold text-pink-700 flex items-center gap-1">
+          <span className="inline-block w-2 h-2 rounded-full bg-pink-400"></span>妻
+        </div>
+        <ExpenseItemEditor type="variable" items={cfg.wifeVariableItems} onChange={set('wifeVariableItems')}/>
+      </Accordion>
+
+      <Accordion title="給付金・一時金の設定">
+        <div className="text-xs text-gray-400 mb-2">金額は変更可能。不要な場合は0に設定してください。</div>
+        <div className="text-xs font-semibold text-gray-500 mb-1">国の制度（一時金）</div>
+        <div className="grid grid-cols-1 gap-2">
+          <Field label="出産育児一時金"><NumberInput value={cfg.birthLumpSum||500000} onChange={set('birthLumpSum')}/></Field>
+          <Field label="妊婦のための支援給付金（妊娠届出後）"><NumberInput value={cfg.maternitySupport||50000} onChange={set('maternitySupport')}/></Field>
+          <Field label="子育て応援給付金（出産後）"><NumberInput value={cfg.childcareSupport||50000} onChange={set('childcareSupport')}/></Field>
+          <Field label="出産付加金（夫の健保組合独自）"><NumberInput value={cfg.husbandHealthBonus||90000} onChange={set('husbandHealthBonus')}/></Field>
+        </div>
+        <div className="border-t pt-2 mt-2">
+          <div className="text-xs font-semibold text-gray-500 mb-1">児童手当（月次・偶数月に2ヶ月分支給）</div>
+          <Field label="支給あり">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" checked={cfg.childrenAllowanceEnabled!==false}
+                onChange={e=>set('childrenAllowanceEnabled')(e.target.checked)}/>
+              有効（0〜2歳:¥15,000/月、3歳〜:¥10,000/月）
+            </label>
+          </Field>
+        </div>
+        {cfg.prefecture==='tokyo'&&(
+          <div className="border-t pt-2 mt-2">
+            <div className="text-xs font-semibold text-gray-500 mb-1">東京都独自給付金</div>
+            <div className="grid grid-cols-1 gap-2">
+              <Field label="赤ちゃんファーストギフト（出産後・一時）"><NumberInput value={cfg.tokyoBabyFirst||100000} onChange={set('tokyoBabyFirst')}/></Field>
+              <Field label="赤ちゃんファーストプラス（2026/1〜2027/3生まれ限定）"><NumberInput value={cfg.tokyoBabyFirstPlus||30000} onChange={set('tokyoBabyFirstPlus')}/></Field>
+              <Field label="018サポート（/月）"><NumberInput value={cfg.tokyo018Support||5000} onChange={set('tokyo018Support')}/></Field>
+              <Field label="保育料無償化・参考月額（給付金欄に表示）"><NumberInput value={cfg.nurseryFee0to2||40000} onChange={set('nurseryFee0to2')}/></Field>
+            </div>
+          </div>
+        )}
+        {cfg.prefecture!=='tokyo'&&(
+          <div className="border-t pt-2 mt-2">
+            <div className="text-xs font-semibold text-gray-500 mb-1">神奈川県 保育料</div>
+            <Field label="0〜2歳保育料（月額）" hint="入園月〜3歳誕生月前月まで発生。3歳以降は無償。">
+              <NumberInput value={cfg.nurseryFee0to2||40000} onChange={set('nurseryFee0to2')}/>
+            </Field>
+          </div>
+        )}
+      </Accordion>
+
+      <Accordion title="資産・貯蓄目標">
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="現金貯金（夫）"><NumberInput value={cfg.cashHusband} onChange={set('cashHusband')}/></Field>
+          <Field label="現金貯金（妻）"><NumberInput value={cfg.cashWife} onChange={set('cashWife')}/></Field>
+        </div>
+        <div className="border-t pt-2 mt-1">
+          <div className="text-xs font-semibold text-gray-500 mb-0.5">月次積立目標（支出として算入）</div>
+          <div className="text-xs text-gray-400 mb-1.5">毎月の積立額を支出として収支計算に反映します。</div>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="通常期（復職・転職後）"><NumberInput value={cfg.targetMonthlySavingsNormal} onChange={set('targetMonthlySavingsNormal')}/></Field>
+            <Field label="育休中の目標"><NumberInput value={cfg.targetMonthlySavingsLeave} onChange={set('targetMonthlySavingsLeave')}/></Field>
+          </div>
+        </div>
+      </Accordion>
+    </div>
+  );
+}
+
+// ─── 家賃カード ──────────────────────────────────────────────────
+function RentCard({limit, title, desc, color, current}) {
+  const isOk=limit!=null&&current<=limit;
+  return (
+    <div className={`rounded-xl p-4 border-2 ${color}`}>
+      <div className="text-xs text-gray-500 mb-1 font-medium">{title}</div>
+      {limit==null
+        ?<div className="text-lg font-bold text-gray-400">達成不可</div>
+        :<div className="text-2xl font-bold">{fmt(limit)}<span className="text-sm font-normal text-gray-500">/月</span></div>
+      }
+      <div className="text-xs text-gray-400 mt-1 leading-relaxed">{desc}</div>
+      {limit!=null&&<div className={`mt-2 text-xs font-semibold ${isOk?'text-green-600':'text-red-600'}`}>
+        現在 {fmt(current)} → {isOk?'✓ 問題なし':'✗ 超過'}
+      </div>}
+    </div>
+  );
+}
+
+// ─── 給付金内訳パネル ─────────────────────────────────────────────
+function BenefitBreakdown({rows}) {
+  const [open, setOpen] = useState(false);
+  const totals = rows.reduce((acc, r) => ({
+    bHP1: acc.bHP1 + r.bHP1,
+    bHP2: acc.bHP2 + r.bHP2,
+    bHC1: acc.bHC1 + r.bHC1,
+    bHC2: acc.bHC2 + r.bHC2,
+    bWMat: acc.bWMat + r.bWMat,
+    bWCL1: acc.bWCL1 + r.bWCL1,
+    bWCL2: acc.bWCL2 + r.bWCL2,
+    bWCL3: acc.bWCL3 + r.bWCL3,
+  }), {bHP1:0,bHP2:0,bHC1:0,bHC2:0,bWMat:0,bWCL1:0,bWCL2:0,bWCL3:0});
+
+  const otherTotals = rows.reduce((acc, r) => ({
+    oBirthLump:        acc.oBirthLump        + (r.oBirthLump||0),
+    oMatSupport:       acc.oMatSupport       + (r.oMatSupport||0),
+    oChildcareSupport: acc.oChildcareSupport + (r.oChildcareSupport||0),
+    oHusbandBonus:     acc.oHusbandBonus     + (r.oHusbandBonus||0),
+    oChildrenAllowance:acc.oChildrenAllowance+ (r.oChildrenAllowance||0),
+    oNurserySubsidy:   acc.oNurserySubsidy   + (r.oNurserySubsidy||0),
+    oTokyo018:         acc.oTokyo018         + (r.oTokyo018||0),
+    oTokyoBabyFirst:   acc.oTokyoBabyFirst   + (r.oTokyoBabyFirst||0),
+    oTokyoBabyFirstPlus: acc.oTokyoBabyFirstPlus + (r.oTokyoBabyFirstPlus||0),
+  }), {oBirthLump:0,oMatSupport:0,oChildcareSupport:0,oHusbandBonus:0,
+       oChildrenAllowance:0,oNurserySubsidy:0,oTokyo018:0,oTokyoBabyFirst:0,oTokyoBabyFirstPlus:0});
+
+  const items = [
+    ['出産手当金（妻67%）',          totals.bWMat,  'text-pink-600'],
+    ['育休給付金 妻80%（最初28日）',  totals.bWCL1,  'text-orange-600'],
+    ['育休給付金 妻67%（〜180日）',   totals.bWCL2,  'text-amber-600'],
+    ['育休給付金 妻50%（180日〜）',   totals.bWCL3,  'text-red-500'],
+    ['パパ育休給付金 80%（前半28日）',totals.bHP1,   'text-blue-600'],
+    ['パパ育休給付金 67%（後半28日）',totals.bHP2,   'text-sky-600'],
+    ['育休給付金 夫67%（〜180日）',   totals.bHC1,   'text-indigo-600'],
+    ['育休給付金 夫50%（180日〜）',   totals.bHC2,   'text-purple-600'],
+    ['出産育児一時金',                otherTotals.oBirthLump,         'text-emerald-600'],
+    ['妊婦のための支援給付金',        otherTotals.oMatSupport,        'text-emerald-600'],
+    ['子育て応援給付金',              otherTotals.oChildcareSupport,  'text-emerald-600'],
+    ['出産付加金（夫健保）',          otherTotals.oHusbandBonus,      'text-emerald-600'],
+    ['児童手当',                      otherTotals.oChildrenAllowance, 'text-green-600'],
+    ['保育料無償化（東京）',          otherTotals.oNurserySubsidy,    'text-green-600'],
+    ['018サポート（東京）',           otherTotals.oTokyo018,          'text-green-600'],
+    ['赤ちゃんファーストギフト（東京）',otherTotals.oTokyoBabyFirst,   'text-green-600'],
+    ['赤ちゃんファーストプラス（東京）',otherTotals.oTokyoBabyFirstPlus,'text-green-600'],
+  ].filter(([,v]) => v > 0);
+
+  const total = Object.values(totals).reduce((s,v)=>s+v,0)
+    + Object.values(otherTotals).reduce((s,v)=>s+v,0);
+
+  return (
+    <div className="mt-2">
+      <button onClick={()=>setOpen(!open)}
+        className="flex items-center gap-1 text-xs text-orange-600 hover:text-orange-800 font-medium">
+        <span>給付金内訳を{open?'閉じる':'見る'}</span>
+        <span>{open?'▲':'▼'}</span>
+      </button>
+      {open&&(
+        <div className="mt-2 bg-orange-50 rounded-lg p-3 space-y-1.5">
+          {items.map(([label,val,cls])=>(
+            <div key={label} className="flex justify-between items-center">
+              <span className="text-xs text-gray-600">{label}</span>
+              <span className={`text-xs font-bold ${cls}`}>{fmtK(val)}</span>
+            </div>
+          ))}
+          <div className="border-t border-orange-200 pt-1.5 mt-1 flex justify-between">
+            <span className="text-xs font-semibold text-gray-700">合計</span>
+            <span className="text-xs font-bold text-orange-700">{fmtK(total)}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── 給付金詳細パネル ─────────────────────────────────────────────
+function BenefitDetailPanel({rows, cfg}) {
+  const husbandDailyWage = (cfg.husbandMonthlyGross || cfg.husbandMonthly) / 30;
+  const wifeDailyWage    = (cfg.wifeBenefitBaseMonthly || cfg.wifeMonthlyNormal) / 30;
+
+  const TYPES = [
+    { key:'bHP1', dKey:'dHP1', label:'パパ育休給付金（前半）', person:'夫', color:'bg-blue-100 text-blue-800',   rate:0.80, dailyWage:husbandDailyWage,
+      basis:'雇用保険の育児休業給付', note:'出産日から28日間' },
+    { key:'bHP2', dKey:'dHP2', label:'パパ育休給付金（後半）', person:'夫', color:'bg-sky-100 text-sky-800',     rate:0.67, dailyWage:husbandDailyWage,
+      basis:'雇用保険の育児休業給付', note:'出産日29〜56日目' },
+    { key:'bHC1', dKey:'dHC1', label:'育休給付金（夫・前半）', person:'夫', color:'bg-indigo-100 text-indigo-800', rate:0.67, dailyWage:husbandDailyWage,
+      basis:'雇用保険の育児休業給付', note:'パパ育休終了後〜育休開始180日目' },
+    { key:'bHC2', dKey:'dHC2', label:'育休給付金（夫・後半）', person:'夫', color:'bg-purple-100 text-purple-800', rate:0.50, dailyWage:husbandDailyWage,
+      basis:'雇用保険の育児休業給付', note:'育休開始181日目〜終了日' },
+    { key:'bWMat', dKey:'dWMat', label:'出産手当金',           person:'妻', color:'bg-pink-100 text-pink-800',   rate:2/3,  dailyWage:wifeDailyWage,
+      basis:'健康保険の出産手当金', note:'産前42日（出産予定日42日前）＋産後56日（出産翌日〜56日後）= 最大98日' },
+    { key:'bWCL1', dKey:'dWCL1', label:'育休給付金（妻・最初28日）', person:'妻', color:'bg-orange-100 text-orange-800', rate:0.80, dailyWage:wifeDailyWage,
+      basis:'雇用保険の育児休業給付', note:'育休開始〜28日目（出生時特例）' },
+    { key:'bWCL2', dKey:'dWCL2', label:'育休給付金（妻・〜180日）', person:'妻', color:'bg-amber-100 text-amber-800',  rate:0.67, dailyWage:wifeDailyWage,
+      basis:'雇用保険の育児休業給付', note:'育休開始29日目〜180日目' },
+    { key:'bWCL3', dKey:'dWCL3', label:'育休給付金（妻・180日〜）', person:'妻', color:'bg-red-100 text-red-800',    rate:0.50, dailyWage:wifeDailyWage,
+      basis:'雇用保険の育児休業給付', note:'育休開始181日目〜終了日' },
+  ];
+
+  // 種別ごとの集計
+  const summary = TYPES.map(t => {
+    const totalAmt  = rows.reduce((s,r) => s+(r[t.key]||0), 0);
+    const totalDays = rows.reduce((s,r) => s+(r[t.dKey]||0), 0);
+    const activeMonths = rows.filter(r => (r[t.dKey]||0) > 0);
+    const period = activeMonths.length > 0
+      ? `${activeMonths[0].ym} 〜 ${activeMonths[activeMonths.length-1].ym}`
+      : null;
+    return { ...t, totalAmt, totalDays, period };
+  }).filter(t => t.totalDays > 0);
+
+  // 月別テーブルのアクティブ行のみ
+  const benefitRows = rows.filter(r =>
+    r.bHP1+r.bHP2+r.bHC1+r.bHC2+r.bWMat+r.bWCL1+r.bWCL2+r.bWCL3 > 0
+  );
+
+  const grandTotal = summary.reduce((s,t) => s+t.totalAmt, 0);
+
+  return (
+    <div className="space-y-5">
+
+      {/* 日額基礎データ */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <h3 className="font-bold text-gray-700 mb-3">給付計算の基礎日額</h3>
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            ['夫 給付金計算ベース（額面月収）', cfg.husbandMonthlyGross||cfg.husbandMonthly, husbandDailyWage, 'text-blue-600',
+              `手取り: ${fmt(cfg.husbandMonthly)}/月`],
+            ['妻 給付金計算ベース（標準報酬月額）', cfg.wifeBenefitBaseMonthly||cfg.wifeMonthlyNormal, wifeDailyWage, 'text-pink-600',
+              `手取り（通常）: ${fmt(cfg.wifeMonthlyNormal)}/月`],
+          ].map(([label, gross, daily, cls, sub]) => (
+            <div key={label} className="bg-gray-50 rounded-lg p-3">
+              <div className="text-xs text-gray-500 mb-2">{label}</div>
+              <div className={`text-sm font-bold ${cls}`}>{fmt(gross)}<span className="text-xs font-normal text-gray-400">/月</span></div>
+              <div className="text-xs text-gray-400 mt-1">÷ 30日 = <span className="font-semibold text-gray-600">{fmt(Math.round(daily))}/日</span></div>
+              <div className="text-xs text-gray-400 mt-0.5">{sub}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 種別ごとの計算サマリー */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <h3 className="font-bold text-gray-700 mb-3">給付種別の算出内訳</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-100 text-gray-600">
+                <th className="px-3 py-2 text-left">給付種別</th>
+                <th className="px-3 py-2 text-left">制度</th>
+                <th className="px-3 py-2 text-right">日額</th>
+                <th className="px-3 py-2 text-right">給付率</th>
+                <th className="px-3 py-2 text-right">日額×率</th>
+                <th className="px-3 py-2 text-right">総日数</th>
+                <th className="px-3 py-2 text-right">対象期間</th>
+                <th className="px-3 py-2 text-right font-bold text-orange-700">給付総額</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.map(t => (
+                <tr key={t.key} className="border-b hover:bg-gray-50">
+                  <td className="px-3 py-2">
+                    <span className={`inline-block text-xs px-2 py-0.5 rounded-full font-medium ${t.color}`}>{t.label}</span>
+                    <div className="text-gray-400 mt-0.5">{t.note}</div>
+                  </td>
+                  <td className="px-3 py-2 text-gray-500 text-xs">{t.basis}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmt(Math.round(t.dailyWage))}</td>
+                  <td className="px-3 py-2 text-right font-bold text-gray-700">{(t.rate*100).toFixed(1)}%</td>
+                  <td className="px-3 py-2 text-right text-gray-600 font-mono">{fmt(Math.round(t.dailyWage*t.rate))}</td>
+                  <td className="px-3 py-2 text-right font-bold">{t.totalDays}日</td>
+                  <td className="px-3 py-2 text-right text-gray-500 whitespace-nowrap">{t.period}</td>
+                  <td className="px-3 py-2 text-right font-bold text-orange-700">{fmtK(t.totalAmt)}</td>
+                </tr>
+              ))}
+              <tr className="bg-orange-50 font-bold">
+                <td colSpan={7} className="px-3 py-2 text-right text-gray-700">合計</td>
+                <td className="px-3 py-2 text-right text-orange-700 text-sm">{fmtK(grandTotal)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-3 text-xs text-gray-400 space-y-0.5">
+          <div>※ 計算式: 日額 × 給付率 × 対象日数（月をまたぐ場合は日割り）</div>
+          <div>※ 育休給付金は手取りベースで試算（実際は額面の標準報酬月額が基準）</div>
+        </div>
+      </div>
+
+      {/* 給付金・一時金（口座に振り込まれるお金） */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <h3 className="font-bold text-gray-700 mb-1">給付金・一時金
+          <span className="ml-2 text-xs font-normal text-green-600 bg-green-50 px-2 py-0.5 rounded-full">実際に口座に受け取るお金</span>
+        </h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-100 text-gray-600">
+                <th className="px-3 py-2 text-left">給付種別</th>
+                <th className="px-3 py-2 text-left">制度・条件</th>
+                <th className="px-3 py-2 text-right">支給タイミング</th>
+                <th className="px-3 py-2 text-right font-bold text-green-700">受取額</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { key:'oBirthLump',         label:'出産育児一時金',          note:'健康保険。子一人につき¥500,000',          timing:'出産月（一括）' },
+                { key:'oMatSupport',        label:'妊婦のための支援給付金',  note:'国の制度。妊娠届出後に支給',               timing:'産前休業開始月（一括）' },
+                { key:'oChildcareSupport',  label:'子育て応援給付金',        note:'国の制度。出産後に支給',                   timing:'出産月（一括）' },
+                { key:'oHusbandBonus',      label:'出産付加金（夫健保組合）',note:'健保組合独自。出産時に支給',               timing:'出産月（一括）' },
+                { key:'oChildrenAllowance', label:'児童手当',                note:'0〜2歳:¥15,000/月、3歳〜:¥10,000/月',    timing:'偶数月に2ヶ月分' },
+                { key:'oTokyo018',          label:'018サポート（東京都）',   note:'¥5,000/月/子。所得制限なし（2024年〜）',   timing:'毎月' },
+                { key:'oTokyoBabyFirst',    label:'赤ちゃんファーストギフト',note:'東京都。出産後に¥100,000相当のギフト',     timing:'出産月（一括）' },
+                { key:'oTokyoBabyFirstPlus',label:'赤ちゃんファーストプラス',note:'東京都。2026/1〜2027/3生まれ限定 ¥30,000',timing:'出産月（一括）' },
+              ].map(t => {
+                const total = rows.reduce((s,r)=>s+(r[t.key]||0),0);
+                if(total===0) return null;
+                return (
+                  <tr key={t.key} className="border-b hover:bg-gray-50">
+                    <td className="px-3 py-2 font-medium text-gray-700">{t.label}</td>
+                    <td className="px-3 py-2 text-gray-500">{t.note}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{t.timing}</td>
+                    <td className="px-3 py-2 text-right font-bold text-green-700">{fmtK(total)}</td>
+                  </tr>
+                );
+              })}
+              <tr className="bg-green-50 font-bold">
+                <td colSpan={3} className="px-3 py-2 text-right text-gray-700">給付金・一時金 合計</td>
+                <td className="px-3 py-2 text-right text-green-700">
+                  {fmtK(['oBirthLump','oMatSupport','oChildcareSupport','oHusbandBonus',
+                    'oChildrenAllowance','oTokyo018','oTokyoBabyFirst','oTokyoBabyFirstPlus']
+                    .reduce((s,k)=>s+rows.reduce((ss,r)=>ss+(r[k]||0),0),0))}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 制度による節約額（支払わずに済むお金） */}
+      {rows.reduce((s,r)=>s+(r.oNurserySubsidy||0),0) > 0 && (
+      <div className="bg-blue-50 rounded-xl shadow-sm border border-blue-200 p-4">
+        <h3 className="font-bold text-gray-700 mb-1">制度による節約額
+          <span className="ml-2 text-xs font-normal text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">支払わずに済むお金（口座には振り込まれない）</span>
+        </h3>
+        <p className="text-xs text-blue-600 mb-3 leading-relaxed">
+          ※ 下記は口座に振り込まれるお金ではなく、制度により<strong>支払いが不要になる金額</strong>です。<br/>
+          神奈川県の場合はこの金額が実費負担として発生します（設定画面で変更可）。
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-blue-100 text-blue-700">
+                <th className="px-3 py-2 text-left">節約項目</th>
+                <th className="px-3 py-2 text-left">制度・条件</th>
+                <th className="px-3 py-2 text-right">対象期間</th>
+                <th className="px-3 py-2 text-right font-bold text-blue-700">節約額</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-b bg-white">
+                <td className="px-3 py-2 font-medium text-gray-700">保育料無償化（東京都）</td>
+                <td className="px-3 py-2 text-gray-500">東京都。0〜2歳の認可保育園保育料が無償</td>
+                <td className="px-3 py-2 text-right text-gray-500">入園月〜3歳前月（毎月）</td>
+                <td className="px-3 py-2 text-right font-bold text-blue-600">
+                  {fmtK(rows.reduce((s,r)=>s+(r.oNurserySubsidy||0),0))}
+                  <span className="ml-1 text-blue-400 font-normal">節約</span>
+                </td>
+              </tr>
+              <tr className="bg-blue-50 font-bold">
+                <td colSpan={3} className="px-3 py-2 text-right text-gray-700">制度節約額 合計</td>
+                <td className="px-3 py-2 text-right text-blue-600">
+                  {fmtK(rows.reduce((s,r)=>s+(r.oNurserySubsidy||0),0))}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-3 p-2 bg-blue-100 rounded text-xs text-blue-700">
+          <strong>5年間 受取・節約 総合計：</strong>{' '}
+          {fmtK(['oBirthLump','oMatSupport','oChildcareSupport','oHusbandBonus',
+            'oChildrenAllowance','oNurserySubsidy','oTokyo018','oTokyoBabyFirst','oTokyoBabyFirstPlus']
+            .reduce((s,k)=>s+rows.reduce((ss,r)=>ss+(r[k]||0),0),0))}
+          <span className="ml-2 text-blue-500 font-normal">（給付金受取＋保育料節約の合計）</span>
+        </div>
+      </div>
+      )}
+
+      {/* 月別給付金内訳テーブル */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <h3 className="font-bold text-gray-700 mb-3">月別 給付金内訳</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-100 text-gray-600">
+                <th className="px-2 py-2 text-left sticky left-0 bg-gray-100">年月</th>
+                <th className="px-2 py-2 text-right text-blue-700">パパ育休<br/>80%</th>
+                <th className="px-2 py-2 text-right text-sky-700">パパ育休<br/>67%</th>
+                <th className="px-2 py-2 text-right text-indigo-700">育休(夫)<br/>67%</th>
+                <th className="px-2 py-2 text-right text-purple-700">育休(夫)<br/>50%</th>
+                <th className="px-2 py-2 text-right text-pink-700">出産<br/>手当金</th>
+                <th className="px-2 py-2 text-right text-orange-700">育休(妻)<br/>80%</th>
+                <th className="px-2 py-2 text-right text-amber-700">育休(妻)<br/>67%</th>
+                <th className="px-2 py-2 text-right text-red-700">育休(妻)<br/>50%</th>
+                <th className="px-2 py-2 text-right font-bold text-orange-800">月合計</th>
+              </tr>
+              <tr className="bg-blue-50 text-gray-500 text-xs">
+                <td className="px-2 py-1 sticky left-0 bg-blue-50">日数→</td>
+                {['dHP1','dHP2','dHC1','dHC2','dWMat','dWCL1','dWCL2','dWCL3'].map(k=>(
+                  <td key={k} className="px-2 py-1 text-right text-gray-400">日数</td>
+                ))}
+                <td></td>
+              </tr>
+            </thead>
+            <tbody>
+              {benefitRows.map((r,i) => {
+                const total = r.bHP1+r.bHP2+r.bHC1+r.bHC2+r.bWMat+r.bWCL1+r.bWCL2+r.bWCL3;
+                return (
+                  <tr key={r.ym} className={i%2===0?'bg-white':'bg-gray-50'}>
+                    <td className="px-2 py-1.5 font-medium whitespace-nowrap sticky left-0 bg-inherit">{r.ym}</td>
+                    {[
+                      [r.bHP1, r.dHP1, 'text-blue-700'],
+                      [r.bHP2, r.dHP2, 'text-sky-700'],
+                      [r.bHC1, r.dHC1, 'text-indigo-700'],
+                      [r.bHC2, r.dHC2, 'text-purple-700'],
+                      [r.bWMat, r.dWMat, 'text-pink-700'],
+                      [r.bWCL1, r.dWCL1, 'text-orange-700'],
+                      [r.bWCL2, r.dWCL2, 'text-amber-700'],
+                      [r.bWCL3, r.dWCL3, 'text-red-700'],
+                    ].map(([amt, days, cls], idx) => (
+                      <td key={idx} className="px-2 py-1.5 text-right">
+                        {amt > 0
+                          ? <div>
+                              <div className={`font-medium ${cls}`}>{fmtKs(amt)}</div>
+                              <div className="text-gray-400">{days}日</div>
+                            </div>
+                          : <span className="text-gray-300">-</span>
+                        }
+                      </td>
+                    ))}
+                    <td className="px-2 py-1.5 text-right font-bold text-orange-700">{fmtKs(total)}</td>
+                  </tr>
+                );
+              })}
+              <tr className="bg-orange-50 font-bold border-t-2 border-orange-200">
+                <td className="px-2 py-2 text-gray-700">合計</td>
+                {['bHP1','bHP2','bHC1','bHC2','bWMat','bWCL1','bWCL2','bWCL3'].map(k=>(
+                  <td key={k} className="px-2 py-2 text-right text-orange-700">
+                    {fmtKs(rows.reduce((s,r)=>s+(r[k]||0),0))||'-'}
+                  </td>
+                ))}
+                <td className="px-2 py-2 text-right text-orange-800">{fmtKs(grandTotal)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ツールチップ ────────────────────────────────────────────────
+function CustomTooltip({active,payload,label}) {
+  if(!active||!payload) return null;
+  return (
+    <div className="bg-white border rounded shadow p-2 text-xs">
+      <p className="font-bold mb-1">{label}</p>
+      {payload.map((p,i)=><p key={i} style={{color:p.color}}>{p.name}: {fmt(p.value)}</p>)}
+    </div>
+  );
+}
+
+// ─── サマリーグリッド ─────────────────────────────────────────────
+function SummaryGrid({items}) {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      {items.map(([label,val,cls])=>(
+        <div key={label} className="bg-gray-50 rounded-lg p-3 text-center">
+          <div className="text-xs text-gray-500 mb-1 leading-tight">{label}</div>
+          <div className={`font-bold text-sm ${cls}`}>{val}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── アプリ本体 ──────────────────────────────────────────────────
+const STORAGE_KEY = 'rentSimulator_v1';
+
+function loadSaved() {
+  try {
+    const s = localStorage.getItem(STORAGE_KEY);
+    if (!s) return null;
+    return JSON.parse(s);
+  } catch { return null; }
+}
+
+// URLパラメータで設定を共有する
+function encodeState(cfg, rent) {
+  try {
+    const data = JSON.stringify({cfg, rent});
+    return btoa(encodeURIComponent(data));
+  } catch { return null; }
+}
+function decodeState(encoded) {
+  try {
+    const data = JSON.parse(decodeURIComponent(atob(encoded)));
+    if (!data.cfg) return null;
+    return data;
+  } catch { return null; }
+}
+function loadFromURL() {
+  const params = new URLSearchParams(window.location.search);
+  const encoded = params.get('s');
+  if (!encoded) return null;
+  return decodeState(encoded);
+}
+
+function App() {
+  // URL優先 → localStorage → デフォルト
+  const fromURL = loadFromURL();
+  const saved   = fromURL || loadSaved();
+  const [cfg, setCfg] = useState(saved ? {...DEFAULTS, ...saved.cfg} : {...DEFAULTS});
+  const [rent, setRent] = useState(saved?.rent ?? DEFAULTS.rent);
+  const [saveLabel, setSaveLabel] = useState('');
+  const [urlLabel, setUrlLabel]   = useState('');
+  const [tab, setTab] = useState('summary');
+
+  function handleSave() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({cfg, rent}));
+    setSaveLabel('保存しました ✓');
+    setTimeout(() => setSaveLabel(''), 2000);
+  }
+
+  function handleCopyURL() {
+    const encoded = encodeState(cfg, rent);
+    if (!encoded) return;
+    const url = `${location.origin}${location.pathname}?s=${encoded}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setUrlLabel('URLをコピーしました ✓');
+      setTimeout(() => setUrlLabel(''), 3000);
+    }).catch(() => {
+      // フォールバック
+      prompt('以下のURLをコピーしてください：', url);
+    });
+  }
+
+  function handleReset() {
+    setCfg({...DEFAULTS});
+    setRent(DEFAULTS.rent);
+    localStorage.removeItem(STORAGE_KEY);
+    // URLパラメータも削除
+    const url = new URL(window.location);
+    url.searchParams.delete('s');
+    window.history.replaceState({}, '', url);
+  }
+
+  const rows   = useMemo(()=>calcMonthly(cfg,rent),[cfg,rent]);
+  const limits = useMemo(()=>calcRentLimits(cfg),[cfg]);
+
+  const matStartYM = dateToYM(cfg.wifeMaternityStart);
+  const leaveEndYM = ymMax(dateToYM(cfg.wifeChildcareLeaveEnd), dateToYM(cfg.husbandChildcareLeaveEnd));
+  const leaveRows  = rows.filter(r=>r.ym>=matStartYM&&r.ym<=leaveEndYM);
+
+  // 5年間サマリー
+  const totalIncome5y  = rows.reduce((s,r)=>s+r.totalIncome,0);
+  const totalExpense5y = rows.reduce((s,r)=>s+r.totalExpenses,0);
+  const totalBenefit5y = rows.reduce((s,r)=>s+r.totalBenefit,0);
+  const finalCash      = rows.length>0?rows[rows.length-1].cumulative:(cfg.cashHusband+cfg.cashWife);
+  const minBalance     = rows.length>0?Math.min(...rows.map(r=>r.balance)):0;
+
+  // 育休期間サマリー
+  const leaveIncome    = leaveRows.reduce((s,r)=>s+r.totalIncome,0);
+  const leaveExpense   = leaveRows.reduce((s,r)=>s+r.totalExpenses,0);
+  const leaveBenefit   = leaveRows.reduce((s,r)=>s+r.totalBenefit,0);
+  const leaveBalance   = leaveRows.reduce((s,r)=>s+r.balance,0);
+  const leaveMinBalance= leaveRows.length>0?Math.min(...leaveRows.map(r=>r.balance)):0;
+
+  const chartData = rows.map(r=>({
+    name:r.ym, 収支:r.balance, 累積貯金:r.cumulative, isBonus:r.isBonus,
+  }));
+
+  return (
+    <div className="min-h-screen bg-slate-100">
+      {/* ヘッダー */}
+      <div className="bg-gradient-to-r from-blue-700 to-indigo-700 text-white px-6 py-4 shadow-lg">
+        <h1 className="text-xl font-bold tracking-tight">家賃上限シミュレーター</h1>
+        <p className="text-sm text-blue-200 mt-0.5">育休・産休・転職を考慮した5年間家計シミュレーション</p>
+      </div>
+
+      <div className="flex two-col" style={{minHeight:'calc(100vh - 72px)'}}>
+        {/* 左：入力パネル */}
+        <div className="w-full md:w-80 lg:w-96 bg-white border-r overflow-y-auto p-4 shrink-0"
+             style={{maxHeight:'calc(100vh - 72px)'}}>
+          <InputPanel cfg={cfg} onChange={setCfg} onReset={handleReset} onSave={handleSave} saveLabel={saveLabel}
+            onCopyURL={handleCopyURL} urlLabel={urlLabel}/>
+        </div>
+
+        {/* 右：出力エリア */}
+        <div className="flex-1 flex flex-col min-w-0" style={{maxHeight:'calc(100vh - 72px)'}}>
+          {/* タブバー */}
+          <div className="flex border-b bg-white shrink-0 px-4">
+            {[['summary','収支サマリー'],['benefits','給付金詳細']].map(([key,label])=>(
+              <button key={key} onClick={()=>setTab(key)}
+                className={`px-5 py-3 text-sm font-medium border-b-2 transition-colors ${tab===key?'border-blue-500 text-blue-600':'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+
+          {tab==='benefits' && <BenefitDetailPanel rows={rows} cfg={cfg}/>}
+          {tab==='summary' && <>
+
+          {/* 家賃スライダー */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="font-bold text-gray-700">家賃シミュレーション</h3>
+              <span className="text-2xl font-bold text-blue-600">{fmt(rent)}<span className="text-sm font-normal text-gray-400">/月</span></span>
+            </div>
+            <input type="range" min={80000} max={350000} step={1000} value={rent}
+              onChange={e=>setRent(Number(e.target.value))} className="w-full accent-blue-500"/>
+            <div className="flex justify-between text-xs text-gray-400 mt-1">
+              <span>¥80,000</span><span>¥350,000</span>
+            </div>
+          </div>
+
+          {/* 3段階家賃カード */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <RentCard limit={limits.rent1} current={rent}
+              title="① 絶対に無理のない上限"
+              desc="育休全期間の収支合計がプラスになる最大家賃（積立込み）"
+              color="border-green-400 bg-green-50"/>
+            <RentCard limit={limits.rent2} current={rent}
+              title="② 推奨家賃"
+              desc="育休中の現金残高が初期貯蓄50%を下回らない最大家賃"
+              color="border-blue-400 bg-blue-50"/>
+            <RentCard limit={limits.rent3} current={rent}
+              title="③ 頑張れば払える上限"
+              desc="転職後の月次収支が平均ゼロ以上になる最大家賃（積立込み）"
+              color="border-orange-400 bg-orange-50"/>
+          </div>
+
+          {/* グラフ */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+            <h3 className="font-bold text-gray-700 mb-3">月別収支推移</h3>
+            <ResponsiveContainer width="100%" height={260}>
+              <ComposedChart data={chartData} margin={{top:5,right:10,left:10,bottom:5}}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                <XAxis dataKey="name" tick={{fontSize:9}} interval={5}/>
+                <YAxis yAxisId="left" tick={{fontSize:9}} tickFormatter={v=>`${(v/10000).toFixed(0)}万`}/>
+                <YAxis yAxisId="right" orientation="right" tick={{fontSize:9}} tickFormatter={v=>`${(v/10000).toFixed(0)}万`}/>
+                <Tooltip content={<CustomTooltip/>}/>
+                <Legend wrapperStyle={{fontSize:11}}/>
+                <Bar yAxisId="left" dataKey="収支" name="月次収支">
+                  {chartData.map((d,i)=><Cell key={i} fill={d.収支>=0?(d.isBonus?'#f59e0b':'#3b82f6'):'#ef4444'}/>)}
+                </Bar>
+                <Line yAxisId="right" type="monotone" dataKey="累積貯金" stroke="#10b981" dot={false} strokeWidth={2} name="累積貯金"/>
+              </ComposedChart>
+            </ResponsiveContainer>
+            <div className="flex flex-wrap gap-3 text-xs text-gray-500 mt-1">
+              <span><span className="inline-block w-3 h-3 bg-blue-500 rounded mr-1"></span>月次+</span>
+              <span><span className="inline-block w-3 h-3 bg-red-500 rounded mr-1"></span>月次−</span>
+              <span><span className="inline-block w-3 h-3 bg-amber-400 rounded mr-1"></span>ボーナス月</span>
+              <span><span className="inline-block w-3 h-3 bg-emerald-500 rounded mr-1"></span>累積貯金</span>
+            </div>
+          </div>
+
+          {/* サマリー 2列 */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* 育休期間 */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <h3 className="font-bold text-gray-700 mb-1">育休期間サマリー</h3>
+              <p className="text-xs text-gray-400 mb-3">{matStartYM} 〜 {leaveEndYM}</p>
+              <SummaryGrid items={[
+                ['合計収入',      fmtK(leaveIncome),   'text-blue-600'],
+                ['うち給付金',    fmtK(leaveBenefit),  'text-orange-600'],
+                ['合計支出',      fmtK(leaveExpense),  'text-gray-600'],
+                ['合計収支',      fmtK(leaveBalance),  leaveBalance>=0?'text-emerald-600':'text-red-600'],
+                ['月次赤字MAX',   fmtK(leaveMinBalance<0?leaveMinBalance:0), 'text-red-500'],
+                ['期間末残高',    fmtK(leaveRows.length>0?leaveRows[leaveRows.length-1].cumulative:0), 'text-emerald-600'],
+              ]}/>
+              <BenefitBreakdown rows={leaveRows}/>
+            </div>
+
+            {/* 5年間全体 */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <h3 className="font-bold text-gray-700 mb-1">5年間サマリー</h3>
+              <p className="text-xs text-gray-400 mb-3">{cfg.startDate} 〜 {cfg.endDate}</p>
+              <SummaryGrid items={[
+                ['5年後の現金',   fmtK(finalCash),       'text-emerald-600'],
+                ['5年間総収入',   fmtK(totalIncome5y),   'text-blue-600'],
+                ['5年間総支出',   fmtK(totalExpense5y),  'text-gray-600'],
+                ['給付金合計',    fmtK(totalBenefit5y),  'text-orange-600'],
+                ['最大月次赤字',  fmtK(minBalance<0?minBalance:0), 'text-red-500'],
+                ['5年間収支',     fmtK(totalIncome5y-totalExpense5y), (totalIncome5y-totalExpense5y)>=0?'text-emerald-600':'text-red-600'],
+              ]}/>
+              <BenefitBreakdown rows={rows}/>
+            </div>
+          </div>
+
+          {/* 月別収支テーブル */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+            <h3 className="font-bold text-gray-700 mb-3">月別収支詳細</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-gray-100 text-gray-600">
+                    <th className="px-2 py-2 text-left">年月</th>
+                    <th className="px-2 py-2 text-left">夫</th>
+                    <th className="px-2 py-2 text-left">妻</th>
+                    <th className="px-2 py-2 text-right">夫収入</th>
+                    <th className="px-2 py-2 text-right">妻収入</th>
+                    <th className="px-2 py-2 text-right text-orange-600">育休給付等</th>
+                    <th className="px-2 py-2 text-right text-green-600">その他給付</th>
+                    <th className="px-2 py-2 text-right">支出</th>
+                    <th className="px-2 py-2 text-right">積立</th>
+                    <th className="px-2 py-2 text-right font-bold">収支</th>
+                    <th className="px-2 py-2 text-right">累積</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r,i)=>(
+                    <tr key={r.ym} className={`border-b ${r.balance<0?'bg-red-50':i%2===0?'bg-white':'bg-gray-50'}`}>
+                      <td className="px-2 py-1.5 font-medium whitespace-nowrap">{r.ym}</td>
+                      <td className="px-2 py-1.5"><PhaseBadge phase={r.husbandPhase}/></td>
+                      <td className="px-2 py-1.5"><PhaseBadge phase={r.wifePhase}/></td>
+                      <td className="px-2 py-1.5 text-right">{fmtKs(r.husbandIncome)}</td>
+                      <td className="px-2 py-1.5 text-right">{fmtKs(r.wifeIncome)}</td>
+                      <td className="px-2 py-1.5 text-right text-orange-600 font-medium">
+                        {(r.husbandBenefit+r.wifeBenefit)>0?fmtKs(r.husbandBenefit+r.wifeBenefit):'-'}
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-green-600 font-medium">
+                        {(r.totalOtherBenefit||0)>0?fmtKs(r.totalOtherBenefit):'-'}
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-gray-500">{fmtKs(r.totalExpenses - r.savingsTarget)}</td>
+                      <td className="px-2 py-1.5 text-right text-indigo-600">
+                        {r.savingsTarget>0?fmtKs(r.savingsTarget):'-'}
+                      </td>
+                      <td className={`px-2 py-1.5 text-right font-bold ${r.balance>=0?'text-blue-600':'text-red-600'}`}>
+                        {r.balance>=0?'+':''}{fmtKs(r.balance)}
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-emerald-600">{fmtKs(r.cumulative)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          </>}
+        </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
