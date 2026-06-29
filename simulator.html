@@ -10,6 +10,20 @@
 <script src="lib/recharts.js"></script>
 <script src="lib/babel.js"></script>
 <script src="lib/tailwind.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script>
+  const _fbApp = firebase.initializeApp({
+    apiKey: "AIzaSyAdIMcjkaphtG2ClYBmUIF32Obt3hBZkZQ",
+    authDomain: "rent-simulator.firebaseapp.com",
+    databaseURL: "https://rent-simulator-default-rtdb.firebaseio.com",
+    projectId: "rent-simulator",
+    storageBucket: "rent-simulator.firebasestorage.app",
+    messagingSenderId: "396877043412",
+    appId: "1:396877043412:web:096ff8d8ad526b62870d41"
+  });
+  const _db = firebase.database();
+</script>
 <style>
   body { font-family: 'Hiragino Sans', 'Yu Gothic', sans-serif; background: #f1f5f9; }
   input[type=range] { width: 100%; }
@@ -1407,6 +1421,58 @@ function App() {
   const [urlLabel, setUrlLabel]   = useState('');
   const [tab, setTab] = useState('summary');
 
+  // ─── リアルタイム同期 ───────────────────────────────────────────
+  const [roomCode, setRoomCode]   = useState('');
+  const [roomInput, setRoomInput] = useState('');
+  const [syncStatus, setSyncStatus] = useState(''); // '' | 'synced' | 'error'
+  const isRemoteUpdate = React.useRef(false);
+  const writeTimer     = React.useRef(null);
+
+  // ルーム参加中：Firebaseの変更を受信してstateに反映
+  useEffect(() => {
+    if (!roomCode) return;
+    const ref = _db.ref(`rooms/${roomCode}`);
+    const handler = snapshot => {
+      const data = snapshot.val();
+      if (!data) return;
+      isRemoteUpdate.current = true;
+      setCfg({...DEFAULTS, ...data.cfg});
+      setRent(data.rent ?? DEFAULTS.rent);
+      isRemoteUpdate.current = false;
+      setSyncStatus('synced');
+    };
+    ref.on('value', handler);
+    return () => ref.off('value', handler);
+  }, [roomCode]);
+
+  // ルーム参加中：cfg/rentが変わったらFirebaseに書き込む（500msデバウンス）
+  useEffect(() => {
+    if (!roomCode || isRemoteUpdate.current) return;
+    clearTimeout(writeTimer.current);
+    writeTimer.current = setTimeout(() => {
+      _db.ref(`rooms/${roomCode}`).set({cfg, rent})
+        .then(() => setSyncStatus('synced'))
+        .catch(() => setSyncStatus('error'));
+    }, 500);
+  }, [cfg, rent, roomCode]);
+
+  function handleCreateRoom() {
+    const code = Math.random().toString(36).slice(2,8).toUpperCase();
+    setRoomCode(code);
+    setSyncStatus('synced');
+  }
+  function handleJoinRoom() {
+    const code = roomInput.trim().toUpperCase();
+    if (code.length < 4) return;
+    setRoomCode(code);
+    setRoomInput('');
+    setSyncStatus('');
+  }
+  function handleLeaveRoom() {
+    setRoomCode('');
+    setSyncStatus('');
+  }
+
   function handleSave() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({cfg, rent}));
     setSaveLabel('保存しました ✓');
@@ -1486,16 +1552,46 @@ function App() {
         <p className="text-sm text-blue-200 mt-0.5">育休・産休・転職を考慮した5年間家計シミュレーション</p>
       </div>
 
-      <div className="flex two-col" style={{minHeight:'calc(100vh - 72px)'}}>
+      {/* 同期バー */}
+      <div className="bg-indigo-50 border-b border-indigo-100 px-4 py-2 flex items-center gap-2 text-sm flex-wrap">
+        <span className="text-indigo-700 font-semibold text-xs">🔄 リアルタイム同期</span>
+        {roomCode ? (
+          <>
+            <span className="font-mono bg-white border border-indigo-200 rounded px-2 py-0.5 text-indigo-900 text-sm tracking-widest select-all">{roomCode}</span>
+            <span className={`text-xs font-medium ${syncStatus==='synced'?'text-green-600':'text-yellow-600'}`}>
+              {syncStatus==='synced'?'● 同期中':'○ 接続中...'}
+            </span>
+            <button onClick={handleLeaveRoom} className="ml-auto text-xs text-gray-400 hover:text-red-500 underline">退出</button>
+          </>
+        ) : (
+          <>
+            <button onClick={handleCreateRoom}
+              className="text-xs px-3 py-1 bg-indigo-600 text-white rounded-full hover:bg-indigo-700">
+              ルームを作成
+            </button>
+            <span className="text-gray-400 text-xs">または</span>
+            <input value={roomInput} onChange={e=>setRoomInput(e.target.value.toUpperCase())}
+              onKeyDown={e=>e.key==='Enter'&&handleJoinRoom()}
+              placeholder="コード入力" maxLength={8}
+              className="font-mono w-28 border border-gray-300 rounded px-2 py-0.5 text-sm text-center focus:outline-none focus:border-indigo-400"/>
+            <button onClick={handleJoinRoom}
+              className="text-xs px-3 py-1 bg-white border border-indigo-300 text-indigo-700 rounded-full hover:bg-indigo-50">
+              参加
+            </button>
+          </>
+        )}
+      </div>
+
+      <div className="flex two-col" style={{minHeight:'calc(100vh - 108px)'}}>
         {/* 左：入力パネル */}
         <div className="w-full md:w-80 lg:w-96 bg-white border-r overflow-y-auto p-4 shrink-0"
-             style={{maxHeight:'calc(100vh - 72px)'}}>
+             style={{maxHeight:'calc(100vh - 108px)'}}>
           <InputPanel cfg={cfg} onChange={setCfg} onReset={handleReset} onSave={handleSave} saveLabel={saveLabel}
             onCopyURL={handleCopyURL} urlLabel={urlLabel}/>
         </div>
 
         {/* 右：出力エリア */}
-        <div className="flex-1 flex flex-col min-w-0" style={{maxHeight:'calc(100vh - 72px)'}}>
+        <div className="flex-1 flex flex-col min-w-0" style={{maxHeight:'calc(100vh - 108px)'}}>
           {/* タブバー */}
           <div className="flex border-b bg-white shrink-0 px-4">
             {[['summary','収支サマリー'],['benefits','給付金詳細']].map(([key,label])=>(
