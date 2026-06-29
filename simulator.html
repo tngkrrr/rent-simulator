@@ -1453,7 +1453,7 @@ function App() {
       _db.ref(`rooms/${roomCode}`).set({cfg, rent})
         .then(() => setSyncStatus('synced'))
         .catch(() => setSyncStatus('error'));
-    }, 500);
+    }, 150);
   }, [cfg, rent, roomCode]);
 
   function handleCreateRoom() {
