@@ -125,6 +125,7 @@ const DEFAULTS = {
     { id: 102,name: '交通費',               amountNormal: 3000,   amountLeave: 3000  },
   ],
   // 資産・貯蓄方針（支出として算入）
+  initialCost: 0,
   cashHusband: 2000000,
   cashWife: 910000,
   targetMonthlySavingsNormal: 40000,
@@ -431,7 +432,7 @@ function calcMonthly(cfg, rent) {
     };
   });
 
-  let cumulative=cfg.cashHusband+cfg.cashWife;
+  let cumulative=(cfg.cashHusband+cfg.cashWife)-(cfg.initialCost||0);
   return rows.map(r=>{ cumulative+=r.balance; return {...r,cumulative}; });
 }
 
@@ -441,7 +442,7 @@ function calcRentLimits(cfg) {
   const wifeCLEndYM=dateToYM(cfg.wifeChildcareLeaveEnd);
   const husbandCLEndYM=dateToYM(cfg.husbandChildcareLeaveEnd);
   const leaveEndYM=ymMax(wifeCLEndYM,husbandCLEndYM);
-  const initialCash=cfg.cashHusband+cfg.cashWife;
+  const initialCash=(cfg.cashHusband+cfg.cashWife)-(cfg.initialCost||0);
 
   let wifeNewJobStartYM=null;
   if(cfg.wifeResign){
@@ -455,9 +456,10 @@ function calcRentLimits(cfg) {
     const newJobRows=wifeNewJobStartYM?rows.filter(r=>r.ym>=wifeNewJobStartYM):[];
     const postLeaveRows=rows.filter(r=>r.ym>leaveEndYM);
 
-    // ① 育休全期間の収支合計がプラス（積立貯金込み）
-    const leaveSum=leaveRows.reduce((s,r)=>s+r.balance,0);
-    const limit1=leaveRows.length>0&&leaveSum>=0;
+    // ① 育休〜転職待機期の全期間で現金残高がゼロを切らない（最保守）
+    const hardRows=rows.filter(r=>r.ym>=matStartYM&&r.ym<=(wifeNewJobStartYM||leaveEndYM));
+    const minCash1=hardRows.reduce((min,r)=>Math.min(min,r.cumulative),Infinity);
+    const limit1=hardRows.length>0&&minCash1>=0;
 
     // ② 育休開始〜転職後収入開始まで、現金残高が初期貯蓄の50%以上
     const difficultEndYM=wifeNewJobStartYM||leaveEndYM;
@@ -829,6 +831,7 @@ function InputPanel({cfg, onChange, onReset, onSave, saveLabel, onCopyURL, urlLa
         <div className="grid grid-cols-2 gap-2">
           <Field label="現金貯金（夫）"><NumberInput value={cfg.cashHusband} onChange={set('cashHusband')}/></Field>
           <Field label="現金貯金（妻）"><NumberInput value={cfg.cashWife} onChange={set('cashWife')}/></Field>
+          <Field label="初期費用（引越・家具等）"><NumberInput value={cfg.initialCost||0} onChange={set('initialCost')}/></Field>
         </div>
         <div className="border-t pt-2 mt-1">
           <div className="text-xs font-semibold text-gray-500 mb-0.5">月次積立目標（支出として算入）</div>
@@ -1641,7 +1644,7 @@ function App() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <RentCard limit={limits.rent1} current={rent}
               title="① 絶対に無理のない上限"
-              desc="育休全期間の収支合計がプラスになる最大家賃（積立込み）"
+              desc="育休〜転職待機期の全期間で現金残高がゼロを切らない最大家賃"
               color="border-green-400 bg-green-50"/>
             <RentCard limit={limits.rent2} current={rent}
               title="② 推奨家賃"
