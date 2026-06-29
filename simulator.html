@@ -90,22 +90,25 @@ const DEFAULTS = {
   ],
   // 変動費（夫・通常期 / 育休中）
   husbandVariableItems: [
-    { id: 20, name: '食費・日用品',         amountNormal: 25000,  amountLeave: 30500 },
-    { id: 21, name: '交際費',               amountNormal: 14000,  amountLeave: 7000  },
-    { id: 22, name: '旅行・レジャー',       amountNormal: 40000,  amountLeave: 25000 },
+    { id: 20, name: '食費・日用品',         amountNormal: 40000,  amountLeave: 55000 },
+    { id: 21, name: '交際費',               amountNormal: 10000,  amountLeave: 7000  },
+    { id: 22, name: '旅行・レジャー',       amountNormal: 20000,  amountLeave: 15000 },
     { id: 23, name: '外食・カフェ・飲み会', amountNormal: 30000,  amountLeave: 25000 },
-    { id: 24, name: '趣味・書籍・ゲーム',   amountNormal: 20000,  amountLeave: 15000 },
-    { id: 25, name: '美容・ファッション',   amountNormal: 10000,  amountLeave: 10000 },
+    { id: 24, name: '趣味・書籍・ゲーム',   amountNormal: 30000,  amountLeave: 20000 },
+    { id: 25, name: '美容・ファッション',   amountNormal: 20000,  amountLeave: 10000 },
+    { id: 26, name: '楽天ペイ',             amountNormal: 30000,  amountLeave: 15000 },
+    { id: 27, name: '交通費',               amountNormal: 7500,   amountLeave: 2500  },
   ],
   // 変動費（妻・通常期 / 育休中）
   wifeVariableItems: [
     { id: 30, name: '食費・日用品',         amountNormal: 17000,  amountLeave: 23500 },
     { id: 31, name: '交際費',               amountNormal: 10000,  amountLeave: 7000  },
-    { id: 32, name: '旅行・レジャー',       amountNormal: 20000,  amountLeave: 25000 },
+    { id: 32, name: '旅行・レジャー',       amountNormal: 20000,  amountLeave: 20000 },
     { id: 33, name: '外食・カフェ・飲み会', amountNormal: 10000,  amountLeave: 10000 },
     { id: 34, name: '趣味・書籍・ゲーム',   amountNormal: 10000,  amountLeave: 5000  },
     { id: 35, name: '美容・ファッション',   amountNormal: 14000,  amountLeave: 14000 },
     { id: 101,name: '医療費',               amountNormal: 17000,  amountLeave: 5000  },
+    { id: 102,name: '交通費',               amountNormal: 3000,   amountLeave: 3000  },
   ],
   // 資産・貯蓄方針（支出として算入）
   cashHusband: 2000000,
