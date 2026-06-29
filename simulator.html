@@ -38,11 +38,11 @@ const DEFAULTS = {
   husbandPaternityLeaveStart: "2027-02-26",
   husbandPaternityLeaveDays: 56,
   husbandChildcareLeaveEnd: "2028-02-25",
-  husbandRaises: {}, // {"2027-07": 2.0, ...} 昇給率(%)
-  husbandRaiseMonths: [7, 1], // 昇給タイミング（月）
+  husbandRaises: {"2027-01":5,"2027-07":5,"2028-07":5,"2029-01":5,"2029-07":5,"2030-01":5,"2030-07":5,"2031-01":5,"2031-07":5},
+  husbandRaiseMonths: [7, 1],
   // 妻
   wifeMonthlyNormal: 193300,
-  wifeBenefitBaseMonthly: 193300, // 出産手当金・育休給付金の計算基準（標準報酬月額ベース）
+  wifeBenefitBaseMonthly: 131100, // 出産手当金・育休給付金の計算基準（標準報酬月額ベース）
   wifeMonthlyGroundDuty: 100000,
   wifeGroundDutyStart: "2026-08-01",
   wifeGroundDutyEnd: "2026-12-17",
@@ -58,10 +58,10 @@ const DEFAULTS = {
   wifeNewJobMonthlyMax: 200000,
   wifeNewJobWaitMonths: 6,
   wifeNewJobBonusAnnual: 200000,
-  wifeRaises: {}, // {"2027-04": 1.5, ...} 昇給率(%)
-  wifeRaiseMonths: [4, 10], // 昇給タイミング（月）
+  wifeRaises: {"2026-10":2,"2028-04":2,"2028-10":2,"2029-04":2,"2029-10":2,"2030-04":2,"2030-10":2,"2031-04":2},
+  wifeRaiseMonths: [4, 10],
   // 保育
-  nurseryEntryMonths: 12,
+  nurseryEntryMonths: 13,
   nurseryFee0to2: 40000,       // 神奈川:費用 / 東京:給付金参考額（同額フィールドで共用）
   // 給付金・一時金（国）
   birthLumpSum: 500000,        // 出産育児一時金
@@ -74,7 +74,7 @@ const DEFAULTS = {
   tokyoBabyFirstPlus: 30000,   // 赤ちゃんファーストプラス（2026/1〜2027/3生まれ限定）
   tokyo018Support: 5000,       // 018サポート（0〜18歳 /月）
   // 家賃
-  rent: 144000,
+  rent: 204000,
   // 固定費（毎月一定）
   fixedItems: [
     { id: 1,  name: '電気代',       amount: 7000 },
@@ -90,27 +90,28 @@ const DEFAULTS = {
   ],
   // 変動費（夫・通常期 / 育休中）
   husbandVariableItems: [
-    { id: 20, name: '食費・日用品',         amountNormal: 30500, amountLeave: 30500 },
-    { id: 21, name: '交際費',               amountNormal: 14000, amountLeave: 7000 },
-    { id: 22, name: '旅行・レジャー',       amountNormal: 40000, amountLeave: 25000 },
-    { id: 23, name: '外食・カフェ・飲み会', amountNormal: 30000, amountLeave: 25000 },
-    { id: 24, name: '趣味・書籍・ゲーム',   amountNormal: 20000, amountLeave: 15000 },
-    { id: 25, name: '美容・ファッション',   amountNormal: 10000, amountLeave: 10000 },
+    { id: 20, name: '食費・日用品',         amountNormal: 25000,  amountLeave: 30500 },
+    { id: 21, name: '交際費',               amountNormal: 14000,  amountLeave: 7000  },
+    { id: 22, name: '旅行・レジャー',       amountNormal: 40000,  amountLeave: 25000 },
+    { id: 23, name: '外食・カフェ・飲み会', amountNormal: 30000,  amountLeave: 25000 },
+    { id: 24, name: '趣味・書籍・ゲーム',   amountNormal: 20000,  amountLeave: 15000 },
+    { id: 25, name: '美容・ファッション',   amountNormal: 10000,  amountLeave: 10000 },
   ],
   // 変動費（妻・通常期 / 育休中）
   wifeVariableItems: [
-    { id: 30, name: '食費・日用品',         amountNormal: 30500, amountLeave: 30500 },
-    { id: 31, name: '交際費',               amountNormal: 14000, amountLeave: 7000 },
-    { id: 32, name: '旅行・レジャー',       amountNormal: 40000, amountLeave: 25000 },
-    { id: 33, name: '外食・カフェ・飲み会', amountNormal: 30000, amountLeave: 25000 },
-    { id: 34, name: '趣味・書籍・ゲーム',   amountNormal: 20000, amountLeave: 15000 },
-    { id: 35, name: '美容・ファッション',   amountNormal: 10000, amountLeave: 10000 },
+    { id: 30, name: '食費・日用品',         amountNormal: 17000,  amountLeave: 23500 },
+    { id: 31, name: '交際費',               amountNormal: 10000,  amountLeave: 7000  },
+    { id: 32, name: '旅行・レジャー',       amountNormal: 20000,  amountLeave: 25000 },
+    { id: 33, name: '外食・カフェ・飲み会', amountNormal: 10000,  amountLeave: 10000 },
+    { id: 34, name: '趣味・書籍・ゲーム',   amountNormal: 10000,  amountLeave: 5000  },
+    { id: 35, name: '美容・ファッション',   amountNormal: 14000,  amountLeave: 14000 },
+    { id: 101,name: '医療費',               amountNormal: 17000,  amountLeave: 5000  },
   ],
   // 資産・貯蓄方針（支出として算入）
   cashHusband: 2000000,
   cashWife: 910000,
   targetMonthlySavingsNormal: 40000,
-  targetMonthlySavingsLeave: 0,
+  targetMonthlySavingsLeave: 40000,
 };
 
 let _nextId = 100;
@@ -1226,6 +1227,141 @@ function SummaryGrid({items}) {
   );
 }
 
+// ─── プログレスバー ──────────────────────────────────────────────
+function ProgressBar({pct, colorClass}) {
+  const w = Math.min(Math.max(pct,0),100);
+  return (
+    <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+      <div className={`h-full rounded-full transition-all duration-500 ${colorClass}`}
+           style={{width:`${w}%`}}/>
+    </div>
+  );
+}
+
+// ─── 期間サマリーカード ──────────────────────────────────────────
+function PeriodCard({name, periodRows, rent, isTotal}) {
+  if (!periodRows || periodRows.length === 0) return null;
+  const income   = periodRows.reduce((s,r)=>s+r.totalIncome,0);
+  const expense  = periodRows.reduce((s,r)=>s+r.totalExpenses,0);
+  const balance  = periodRows.reduce((s,r)=>s+r.balance,0);
+  const rentTotal= rent * periodRows.length;
+  const startYM  = periodRows[0].ym;
+  const endYM    = periodRows[periodRows.length-1].ym;
+
+  const expPct = expense>0 ? Math.round(rentTotal/expense*100) : 0;
+  const incPct = income >0 ? Math.round(rentTotal/income *100) : 0;
+
+  const barColor = incPct<=30 ? 'bg-emerald-400' : incPct<=40 ? 'bg-yellow-400' : 'bg-red-400';
+  const incColor = incPct<=30 ? 'text-emerald-600' : incPct<=40 ? 'text-yellow-600' : 'text-red-600';
+  const borderCls = balance<0 ? 'border-red-400' : isTotal ? 'border-blue-300' : 'border-gray-200';
+  const bgCls     = isTotal ? 'bg-blue-50' : 'bg-white';
+
+  return (
+    <div className={`rounded-xl shadow-sm border-2 ${borderCls} ${bgCls} p-4 flex flex-col gap-2`}>
+      <div>
+        <div className="font-bold text-gray-700 text-sm">{name}</div>
+        <div className="text-xs text-gray-400">{startYM} 〜 {endYM}（{periodRows.length}ヶ月）</div>
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+        <div className="text-gray-500">収入合計</div>
+        <div className="text-right font-semibold text-blue-600">{fmtK(income)}</div>
+        <div className="text-gray-500">支出合計</div>
+        <div className="text-right font-semibold text-gray-600">{fmtK(expense)}</div>
+        <div className="text-gray-500">うち家賃</div>
+        <div className="text-right text-gray-500">{fmtK(rentTotal)}</div>
+        <div className="text-gray-500 font-medium">収支差額</div>
+        <div className={`text-right font-bold ${balance>=0?'text-emerald-600':'text-red-600'}`}>
+          {balance>=0?'+':''}{fmtK(balance)}
+        </div>
+      </div>
+      <div className="space-y-1.5 mt-1">
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-gray-500 w-12 shrink-0">支出比</span>
+          <ProgressBar pct={expPct} colorClass={barColor}/>
+          <span className={`w-8 text-right font-semibold ${incColor}`}>{expPct}%</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-gray-500 w-12 shrink-0">収入比</span>
+          <ProgressBar pct={incPct} colorClass={barColor}/>
+          <span className={`w-8 text-right font-semibold ${incColor}`}>{incPct}%</span>
+        </div>
+        <div className="text-right text-xs text-gray-400">家賃÷収入・支出</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 期間別月別明細アコーディオン ────────────────────────────────
+function PeriodMonthlyAccordion({name, periodRows}) {
+  const [open, setOpen] = useState(false);
+  if (!periodRows || periodRows.length === 0) return null;
+  const balance = periodRows.reduce((s,r)=>s+r.balance,0);
+  const balCls = balance>=0?'text-emerald-600':'text-red-600';
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <button onClick={()=>setOpen(o=>!o)}
+        className="w-full flex justify-between items-center px-4 py-3 hover:bg-gray-50 transition-colors">
+        <div className="flex items-center gap-3">
+          <span className="font-bold text-gray-700 text-sm">{name}</span>
+          <span className="text-xs text-gray-400">{periodRows[0].ym} 〜 {periodRows[periodRows.length-1].ym}</span>
+          <span className={`text-xs font-semibold ${balCls}`}>
+            {balance>=0?'+':''}{fmtK(balance)}
+          </span>
+        </div>
+        <span className="text-gray-400 text-xs">{open?'▲':'月別明細を見る▼'}</span>
+      </button>
+      {open && (
+        <div className="overflow-x-auto border-t border-gray-100">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-100 text-gray-600">
+                <th className="px-2 py-2 text-left">年月</th>
+                <th className="px-2 py-2 text-left">夫</th>
+                <th className="px-2 py-2 text-left">妻</th>
+                <th className="px-2 py-2 text-right">夫収入</th>
+                <th className="px-2 py-2 text-right">妻収入</th>
+                <th className="px-2 py-2 text-right text-orange-600">育休給付</th>
+                <th className="px-2 py-2 text-right text-green-600">その他給付</th>
+                <th className="px-2 py-2 text-right">支出</th>
+                <th className="px-2 py-2 text-right">積立</th>
+                <th className="px-2 py-2 text-right font-bold">収支</th>
+                <th className="px-2 py-2 text-right">累積</th>
+              </tr>
+            </thead>
+            <tbody>
+              {periodRows.map((r,i)=>(
+                <tr key={r.ym} className={`border-b ${r.balance<0?'bg-red-50':r.isBonus?'bg-amber-50':i%2===0?'bg-white':'bg-gray-50'}`}>
+                  <td className="px-2 py-1.5 font-medium whitespace-nowrap">
+                    {r.ym}{r.isBonus&&<span className="ml-1 text-amber-500 text-xs">★</span>}
+                  </td>
+                  <td className="px-2 py-1.5"><PhaseBadge phase={r.husbandPhase}/></td>
+                  <td className="px-2 py-1.5"><PhaseBadge phase={r.wifePhase}/></td>
+                  <td className="px-2 py-1.5 text-right">{fmtKs(r.husbandIncome)}</td>
+                  <td className="px-2 py-1.5 text-right">{fmtKs(r.wifeIncome)}</td>
+                  <td className="px-2 py-1.5 text-right text-orange-600 font-medium">
+                    {(r.husbandBenefit+r.wifeBenefit)>0?fmtKs(r.husbandBenefit+r.wifeBenefit):'-'}
+                  </td>
+                  <td className="px-2 py-1.5 text-right text-green-600 font-medium">
+                    {(r.totalOtherBenefit||0)>0?fmtKs(r.totalOtherBenefit):'-'}
+                  </td>
+                  <td className="px-2 py-1.5 text-right text-gray-500">{fmtKs(r.totalExpenses-r.savingsTarget)}</td>
+                  <td className="px-2 py-1.5 text-right text-indigo-600">
+                    {r.savingsTarget>0?fmtKs(r.savingsTarget):'-'}
+                  </td>
+                  <td className={`px-2 py-1.5 text-right font-bold ${r.balance>=0?'text-blue-600':'text-red-600'}`}>
+                    {r.balance>=0?'+':''}{fmtKs(r.balance)}
+                  </td>
+                  <td className="px-2 py-1.5 text-right text-emerald-600">{fmtKs(r.cumulative)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── アプリ本体 ──────────────────────────────────────────────────
 const STORAGE_KEY = 'rentSimulator_v1';
 
@@ -1302,7 +1438,23 @@ function App() {
 
   const matStartYM = dateToYM(cfg.wifeMaternityStart);
   const leaveEndYM = ymMax(dateToYM(cfg.wifeChildcareLeaveEnd), dateToYM(cfg.husbandChildcareLeaveEnd));
-  const leaveRows  = rows.filter(r=>r.ym>=matStartYM&&r.ym<=leaveEndYM);
+
+  // 転職後新収入開始月
+  let newJobStartYM = null;
+  if (cfg.wifeResign) {
+    const {y:ny0, m:nm0} = parseYM(dateToYM(cfg.wifeChildcareLeaveEnd));
+    let ny=ny0, nm=nm0+(cfg.wifeNewJobWaitMonths||6);
+    while(nm>12){nm-=12;ny++;} newJobStartYM=ymToKey(ny,nm);
+  }
+
+  // 4期間のrowsを振り分け
+  const periodDefs = [
+    { id:'normal1', name:'通常期①',    filter: r => r.ym <  matStartYM },
+    { id:'leave',   name:'育休期間',    filter: r => r.ym >= matStartYM && r.ym <= leaveEndYM },
+    { id:'wait',    name:'転職待機期',  filter: r => r.ym >  leaveEndYM && (!newJobStartYM || r.ym < newJobStartYM) },
+    { id:'normal2', name:'通常期②',    filter: r => newJobStartYM ? r.ym >= newJobStartYM : false },
+  ].map(p => ({...p, rows: rows.filter(p.filter)}))
+   .filter(p => p.rows.length > 0);
 
   // 5年間サマリー
   const totalIncome5y  = rows.reduce((s,r)=>s+r.totalIncome,0);
@@ -1311,7 +1463,8 @@ function App() {
   const finalCash      = rows.length>0?rows[rows.length-1].cumulative:(cfg.cashHusband+cfg.cashWife);
   const minBalance     = rows.length>0?Math.min(...rows.map(r=>r.balance)):0;
 
-  // 育休期間サマリー
+  // （旧育休サマリー変数 – グラフ等で残用）
+  const leaveRows      = periodDefs.find(p=>p.id==='leave')?.rows || [];
   const leaveIncome    = leaveRows.reduce((s,r)=>s+r.totalIncome,0);
   const leaveExpense   = leaveRows.reduce((s,r)=>s+r.totalExpenses,0);
   const leaveBenefit   = leaveRows.reduce((s,r)=>s+r.totalBenefit,0);
@@ -1408,85 +1561,30 @@ function App() {
             </div>
           </div>
 
-          {/* サマリー 2列 */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* 育休期間 */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-              <h3 className="font-bold text-gray-700 mb-1">育休期間サマリー</h3>
-              <p className="text-xs text-gray-400 mb-3">{matStartYM} 〜 {leaveEndYM}</p>
-              <SummaryGrid items={[
-                ['合計収入',      fmtK(leaveIncome),   'text-blue-600'],
-                ['うち給付金',    fmtK(leaveBenefit),  'text-orange-600'],
-                ['合計支出',      fmtK(leaveExpense),  'text-gray-600'],
-                ['合計収支',      fmtK(leaveBalance),  leaveBalance>=0?'text-emerald-600':'text-red-600'],
-                ['月次赤字MAX',   fmtK(leaveMinBalance<0?leaveMinBalance:0), 'text-red-500'],
-                ['期間末残高',    fmtK(leaveRows.length>0?leaveRows[leaveRows.length-1].cumulative:0), 'text-emerald-600'],
-              ]}/>
-              <BenefitBreakdown rows={leaveRows}/>
-            </div>
-
-            {/* 5年間全体 */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-              <h3 className="font-bold text-gray-700 mb-1">5年間サマリー</h3>
-              <p className="text-xs text-gray-400 mb-3">{cfg.startDate} 〜 {cfg.endDate}</p>
-              <SummaryGrid items={[
-                ['5年後の現金',   fmtK(finalCash),       'text-emerald-600'],
-                ['5年間総収入',   fmtK(totalIncome5y),   'text-blue-600'],
-                ['5年間総支出',   fmtK(totalExpense5y),  'text-gray-600'],
-                ['給付金合計',    fmtK(totalBenefit5y),  'text-orange-600'],
-                ['最大月次赤字',  fmtK(minBalance<0?minBalance:0), 'text-red-500'],
-                ['5年間収支',     fmtK(totalIncome5y-totalExpense5y), (totalIncome5y-totalExpense5y)>=0?'text-emerald-600':'text-red-600'],
-              ]}/>
-              <BenefitBreakdown rows={rows}/>
+          {/* 期間サマリー 4枚カード */}
+          <div>
+            <h3 className="font-bold text-gray-700 mb-3 text-sm">期間別サマリー
+              <span className="ml-2 text-xs font-normal text-gray-400">家賃÷収入が 緑≤30% 黄30-40% 赤≥40%</span>
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+              {periodDefs.map(p=>(
+                <PeriodCard key={p.id} name={p.name} periodRows={p.rows} rent={rent}/>
+              ))}
             </div>
           </div>
 
-          {/* 月別収支テーブル */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-            <h3 className="font-bold text-gray-700 mb-3">月別収支詳細</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="bg-gray-100 text-gray-600">
-                    <th className="px-2 py-2 text-left">年月</th>
-                    <th className="px-2 py-2 text-left">夫</th>
-                    <th className="px-2 py-2 text-left">妻</th>
-                    <th className="px-2 py-2 text-right">夫収入</th>
-                    <th className="px-2 py-2 text-right">妻収入</th>
-                    <th className="px-2 py-2 text-right text-orange-600">育休給付等</th>
-                    <th className="px-2 py-2 text-right text-green-600">その他給付</th>
-                    <th className="px-2 py-2 text-right">支出</th>
-                    <th className="px-2 py-2 text-right">積立</th>
-                    <th className="px-2 py-2 text-right font-bold">収支</th>
-                    <th className="px-2 py-2 text-right">累積</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r,i)=>(
-                    <tr key={r.ym} className={`border-b ${r.balance<0?'bg-red-50':i%2===0?'bg-white':'bg-gray-50'}`}>
-                      <td className="px-2 py-1.5 font-medium whitespace-nowrap">{r.ym}</td>
-                      <td className="px-2 py-1.5"><PhaseBadge phase={r.husbandPhase}/></td>
-                      <td className="px-2 py-1.5"><PhaseBadge phase={r.wifePhase}/></td>
-                      <td className="px-2 py-1.5 text-right">{fmtKs(r.husbandIncome)}</td>
-                      <td className="px-2 py-1.5 text-right">{fmtKs(r.wifeIncome)}</td>
-                      <td className="px-2 py-1.5 text-right text-orange-600 font-medium">
-                        {(r.husbandBenefit+r.wifeBenefit)>0?fmtKs(r.husbandBenefit+r.wifeBenefit):'-'}
-                      </td>
-                      <td className="px-2 py-1.5 text-right text-green-600 font-medium">
-                        {(r.totalOtherBenefit||0)>0?fmtKs(r.totalOtherBenefit):'-'}
-                      </td>
-                      <td className="px-2 py-1.5 text-right text-gray-500">{fmtKs(r.totalExpenses - r.savingsTarget)}</td>
-                      <td className="px-2 py-1.5 text-right text-indigo-600">
-                        {r.savingsTarget>0?fmtKs(r.savingsTarget):'-'}
-                      </td>
-                      <td className={`px-2 py-1.5 text-right font-bold ${r.balance>=0?'text-blue-600':'text-red-600'}`}>
-                        {r.balance>=0?'+':''}{fmtKs(r.balance)}
-                      </td>
-                      <td className="px-2 py-1.5 text-right text-emerald-600">{fmtKs(r.cumulative)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {/* 5年間トータルサマリー */}
+          <PeriodCard name="5年間 合計" periodRows={rows} rent={rent} isTotal={true}/>
+
+          {/* 月別明細（期間別折りたたみ） */}
+          <div>
+            <h3 className="font-bold text-gray-700 mb-2 text-sm">月別収支明細
+              <span className="ml-2 text-xs font-normal text-gray-400">★ボーナス月 / 赤背景=赤字</span>
+            </h3>
+            <div className="space-y-2">
+              {periodDefs.map(p=>(
+                <PeriodMonthlyAccordion key={p.id} name={p.name} periodRows={p.rows}/>
+              ))}
             </div>
           </div>
 
