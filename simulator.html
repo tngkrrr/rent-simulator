@@ -1422,9 +1422,10 @@ function App() {
   const [tab, setTab] = useState('summary');
 
   // ─── リアルタイム同期 ───────────────────────────────────────────
-  const [roomCode, setRoomCode]   = useState('');
+  const urlRoom = new URLSearchParams(window.location.search).get('room');
+  const [roomCode, setRoomCode]   = useState(urlRoom ? urlRoom.toUpperCase() : '');
   const [roomInput, setRoomInput] = useState('');
-  const [syncStatus, setSyncStatus] = useState(''); // '' | 'synced' | 'error'
+  const [syncStatus, setSyncStatus] = useState(urlRoom ? '' : ''); // '' | 'synced' | 'error'
   const isRemoteUpdate = React.useRef(false);
   const writeTimer     = React.useRef(null);
 
@@ -1460,6 +1461,11 @@ function App() {
     const code = Math.random().toString(36).slice(2,8).toUpperCase();
     setRoomCode(code);
     setSyncStatus('synced');
+    // URLにroomコードを反映
+    const url = new URL(window.location);
+    url.searchParams.set('room', code);
+    url.searchParams.delete('s');
+    window.history.replaceState({}, '', url);
   }
   function handleJoinRoom() {
     const code = roomInput.trim().toUpperCase();
@@ -1467,10 +1473,16 @@ function App() {
     setRoomCode(code);
     setRoomInput('');
     setSyncStatus('');
+    const url = new URL(window.location);
+    url.searchParams.set('room', code);
+    window.history.replaceState({}, '', url);
   }
   function handleLeaveRoom() {
     setRoomCode('');
     setSyncStatus('');
+    const url = new URL(window.location);
+    url.searchParams.delete('room');
+    window.history.replaceState({}, '', url);
   }
 
   function handleSave() {
@@ -1561,7 +1573,13 @@ function App() {
             <span className={`text-xs font-medium ${syncStatus==='synced'?'text-green-600':'text-yellow-600'}`}>
               {syncStatus==='synced'?'● 同期中':'○ 接続中...'}
             </span>
-            <button onClick={handleLeaveRoom} className="ml-auto text-xs text-gray-400 hover:text-red-500 underline">退出</button>
+            <button onClick={()=>{
+                const url = `${location.origin}${location.pathname}?room=${roomCode}`;
+                navigator.clipboard.writeText(url).catch(()=>prompt('URLをコピー：',url));
+              }} className="ml-auto text-xs px-2.5 py-1 bg-indigo-600 text-white rounded-full hover:bg-indigo-700">
+              URLコピー
+            </button>
+            <button onClick={handleLeaveRoom} className="text-xs text-gray-400 hover:text-red-500 underline">退出</button>
           </>
         ) : (
           <>
