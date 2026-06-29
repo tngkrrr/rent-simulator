@@ -456,10 +456,10 @@ function calcRentLimits(cfg) {
     const newJobRows=wifeNewJobStartYM?rows.filter(r=>r.ym>=wifeNewJobStartYM):[];
     const postLeaveRows=rows.filter(r=>r.ym>leaveEndYM);
 
-    // ① 育休〜転職待機期の全期間で現金残高がゼロを切らない（最保守）
+    // ① 育休〜転職待機期の全期間で現金残高が初期貯蓄の70%以上（最保守）
     const hardRows=rows.filter(r=>r.ym>=matStartYM&&r.ym<=(wifeNewJobStartYM||leaveEndYM));
     const minCash1=hardRows.reduce((min,r)=>Math.min(min,r.cumulative),Infinity);
-    const limit1=hardRows.length>0&&minCash1>=0;
+    const limit1=hardRows.length>0&&minCash1>=initialCash*0.7;
 
     // ② 育休開始〜転職後収入開始まで、現金残高が初期貯蓄の50%以上
     const difficultEndYM=wifeNewJobStartYM||leaveEndYM;
@@ -1644,7 +1644,7 @@ function App() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <RentCard limit={limits.rent1} current={rent}
               title="① 絶対に無理のない上限"
-              desc="育休〜転職待機期の全期間で現金残高がゼロを切らない最大家賃"
+              desc="育休中の現金残高が初期貯蓄の70%以上を維持できる最大家賃"
               color="border-green-400 bg-green-50"/>
             <RentCard limit={limits.rent2} current={rent}
               title="② 推奨家賃"
